@@ -986,7 +986,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
     <div style="flex:1"></div>
     <button class="secondary" id="backup-chip" onclick="exportFullSystem()" title="Backup jetzt exportieren">💾 –</button>
     <button class="secondary" onclick="openSettings()">⚙️ Einstellungen</button>
-    <input type="file" id="backup-input" style="display:none" accept=".json" onchange="importFullSystem(this.files[0])">
+    <input type="file" id="backup-input" style="display:none" accept=".zip,.json" onchange="importFullSystem(this.files[0])">
     <div id="counter" style="color: var(--accent); font-weight: bold; border: 1px solid var(--accent); padding: 4px 10px; border-radius: 4px;">-</div>
 </div>
 
@@ -1062,6 +1062,31 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 </div>
 
 <script>
+    /* =====================================================================
+       ENTWICKLER-NOTIZEN (nur Kommentar, ändert nichts am Verhalten)
+       ---------------------------------------------------------------------
+       Eine einzige HTML-Datei: <style> (Basis, dann Themes/Module/Handy ganz unten), HTML-Gerüst, dieses Skript.
+       Das Skript ist in Abschnitte gegliedert, im Code über "// ===== NAME =====" zu finden:
+         EINSTELLUNGEN · Duell/Matchmaking (loadMatchup, submitVote) · Rangliste/Seitenleiste · Details (showDetailsByID)
+         Statistik (openStats) · BACKUP-HINWEIS · BACKUP-DATEI (ZIP) · Import/Export · Rückgängig · Tabs
+         EINSTELLUNGSFENSTER · RANGLISTE (Spalten/Kacheln/Mehrfachauswahl) · DETAIL-NAVIGATION & RANG-VERLAUF
+         STATISTIK-INSIGHTS · TAB-AKZENTFARBE · LIGHTBOX · BILDER HOCHLADEN/DUPLIKATE · DATENPFLEGE · MATCH-CACHE
+         BILD-URLS & VORSCHAUBILDER · EIGENSCHAFTS-WERTE · ANZEIGE-EINSTELLUNGEN · TAGESZIEL · TAG-FILTER
+         TAG-STATISTIK · RIVALEN · Matchup Studio
+       Datenhaltung:
+         IndexedDB "ImageRankerDB" (v8): images, matches, tagDefinitions, thumbs.
+           image: {id, tab, name, blob, elo, wins, losses, streak, peak, history[], y, tags{Name:{value, values?}}, rivals[{id,status}], links[], hash}
+           match: {id, leftId, rightId, winnerId:'left'|'right', delta (Betrag), tab, time}
+           tagDefinition: {id, tab, tagName, type:'exact'|'multi'|'number', options[], tolerance}
+         localStorage: tabs, activeTab, focusId/focusCount, settings (wird im Backup mitgesichert), matchFilters,
+                       theme, uiPrefs, rankView, lastBackupAt (diese vier nur pro Gerät)
+       Konventionen:
+         · Matches werden über getMatches()/getMatchIndex() gelesen (Cache); nach direkten Schreibzugriffen invalidateMatchCache().
+         · Keine confirm()/prompt() innerhalb einer offenen IndexedDB-Transaktion (sie läuft sonst ab).
+         · Neue Einstellungen: DEFAULT_SETTINGS + sanitizeSettings() ergänzen, dann Eingabe im Einstellungsfenster.
+         · Farben in JS-erzeugtem HTML als var(--surface, #alt) schreiben, damit beide Designs (Arena/Schlicht) passen.
+         · Handy-Layout steht gesammelt im CSS-Block "SMARTPHONE" am Ende des <style>.
+       ===================================================================== */
     let db = null;
     let currentTab = localStorage.getItem('activeTab') || "Standard";
     let tabs = JSON.parse(localStorage.getItem('tabs')) || ["Standard"];
@@ -2843,22 +2868,21 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
             }
         });
 
-        // 2. Konvertiere die Bilder-Blobs in Base64 (dein funktionierender Code)
-        const processedImages = await Promise.all(allImages.map(async img => {
+        // 2. Bilder als eigene Dateien ins ZIP (keine Base64-Aufblähung, keine riesigen Textstrings)
+        const files = [];
+        const processedImages = allImages.map(img => {
             if (img.blob instanceof Blob) {
-                const b64 = await new Promise(r => { 
-                    const rd = new FileReader(); 
-                    rd.onloadend = () => r(rd.result); 
-                    rd.readAsDataURL(img.blob); 
-                });
-                return { ...img, blob: b64 };
-            } 
+                const name = 'img/' + img.id + extForType(img.blob.type);
+                files.push({ name, data: img.blob });
+                return { ...img, blob: undefined, blobFile: name, blobType: img.blob.type || '' };
+            }
             return img;
-        }));
+        });
 
-        // 3. Erstelle das Backup-Objekt mit TABS, IMAGES und MATCHES
-        const backupObject = { 
-            tabs, 
+        // 3. Backup-Objekt mit TABS, IMAGES, MATCHES, Eigenschaften und Einstellungen
+        const backupObject = {
+            format: 'ranker-zip-1',
+            tabs,
             images: processedImages,
             matches: allMatches,
             tagDefinitions: allTagDefinitions,
@@ -2866,21 +2890,145 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
             exportedAt: Date.now()
         };
 
-        // 4. Download auslösen
-        const a = document.createElement('a'); 
-        a.href = URL.createObjectURL(new Blob([JSON.stringify(backupObject)], { type: "application/json" }));
-        a.download = `ranker_backup.json`; 
-        a.click();
-        setLastBackupAt(backupObject.exportedAt);
-        updateBackupChip();
+        // 4. ZIP bauen und herunterladen
+        try {
+            const zip = await buildZip([{ name: 'backup.json', data: new Blob([JSON.stringify(backupObject)], { type: 'application/json' }) }, ...files], (i, n) => showBusy('Backup wird erstellt… ' + i + '/' + n));
+            const d = new Date(), pad = n => String(n).padStart(2, '0');
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(zip);
+            a.download = 'ranker_backup_' + d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + '.zip';
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+            setLastBackupAt(backupObject.exportedAt);
+            updateBackupChip();
+        } finally { showBusy(''); }
     }
 
-	function importFullSystem(file) {
+    // ===================== BACKUP-HINWEIS (wann war das letzte Backup?) =====================
+    // Pro Gerät: Zeitpunkt des letzten Exports/Imports. Zeigt, wie lange das her ist und wie viele Duelle seitdem dazukamen.
+    const BACKUP_WARN_DAYS = 7, BACKUP_WARN_MATCHES = 300;
+    function getLastBackupAt() { try { return Number(localStorage.getItem('lastBackupAt')) || 0; } catch (e) { return 0; } }
+    function setLastBackupAt(t) { try { localStorage.setItem('lastBackupAt', String(t)); } catch (e) {} }
+    function agoText(t) {
+        const min = Math.floor((Date.now() - t) / 60000);
+        if (min < 1) return 'gerade eben';
+        if (min < 60) return 'vor ' + min + ' Min';
+        const h = Math.floor(min / 60);
+        if (h < 24) return 'vor ' + h + ' Std';
+        const d = Math.floor(h / 24);
+        return 'vor ' + d + (d === 1 ? ' Tag' : ' Tagen');
+    }
+    async function updateBackupChip() {
+        const el = document.getElementById('backup-chip');
+        if (!el || !db) return;
+        const last = getLastBackupAt();
+        let fresh = 0;
+        try { fresh = (await getMatches()).filter(m => (Number(m.time) || 0) > last).length; } catch (e) {}
+        let txt, warn;
+        if (!last) { txt = '💾 Noch kein Backup'; warn = fresh > 0; }
+        else {
+            txt = '💾 ' + agoText(last) + (fresh ? ' · +' + fresh + ' Duelle' : '');
+            warn = (Date.now() - last) > BACKUP_WARN_DAYS * 86400000 || fresh >= BACKUP_WARN_MATCHES;
+        }
+        el.textContent = txt;
+        el.style.borderColor = warn ? 'var(--accent-r, #f39c12)' : '';
+        el.style.color = warn ? 'var(--accent-r, #f39c12)' : '';
+        el.title = 'Backup jetzt exportieren' + (last ? ' (letztes: ' + new Date(last).toLocaleString('de-DE') + ')' : '');
+    }
+
+    // ===================== BACKUP-DATEI (ZIP) =====================
+    // Ein Backup ist ein ZIP (ohne Kompression, Bilder liegen schon komprimiert vor) mit backup.json und img/<id>.<ext>.
+    // Alte Backups (eine einzige JSON-Datei mit Base64-Bildern) lassen sich weiterhin importieren.
+    const extForType = t => ({ 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif', 'image/avif': '.avif' })[t] || '.bin';
+    const CRC_TABLE = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1); t[n] = c >>> 0; } return t; })();
+    function crc32(bytes) { let c = 0xFFFFFFFF; for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+    async function buildZip(entries, onProgress) {
+        if (entries.length > 65000) throw new Error('Zu viele Dateien für ein ZIP-Backup.');
+        const enc = new TextEncoder(), parts = [], central = [];
+        const now = new Date();
+        const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+        const dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+        let offset = 0, i = 0;
+        for (const e of entries) {
+            if (onProgress && (i++ % 20 === 0)) { onProgress(i, entries.length); await new Promise(r => setTimeout(r, 0)); }
+            const name = enc.encode(e.name);
+            const size = e.data.size;
+            if (size > 0xFFFFFFFE || offset > 0xFFFFFFFE) throw new Error('Backup zu groß für das ZIP-Format (4 GB).');
+            const crc = crc32(new Uint8Array(await e.data.arrayBuffer()));
+            const lh = new DataView(new ArrayBuffer(30));
+            lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(8, 0, true);
+            lh.setUint16(10, dosTime, true); lh.setUint16(12, dosDate, true); lh.setUint32(14, crc, true);
+            lh.setUint32(18, size, true); lh.setUint32(22, size, true); lh.setUint16(26, name.length, true); lh.setUint16(28, 0, true);
+            parts.push(lh.buffer, name, e.data);
+            const ch = new DataView(new ArrayBuffer(46));
+            ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true); ch.setUint16(10, 0, true);
+            ch.setUint16(12, dosTime, true); ch.setUint16(14, dosDate, true); ch.setUint32(16, crc, true);
+            ch.setUint32(20, size, true); ch.setUint32(24, size, true); ch.setUint16(28, name.length, true);
+            ch.setUint32(42, offset, true);
+            central.push(ch.buffer, name);
+            offset += 30 + name.length + size;
+        }
+        const cdSize = central.reduce((n, p) => n + (p.byteLength !== undefined ? p.byteLength : p.length), 0);
+        const end = new DataView(new ArrayBuffer(22));
+        end.setUint32(0, 0x06054b50, true); end.setUint16(8, entries.length, true); end.setUint16(10, entries.length, true);
+        end.setUint32(12, cdSize, true); end.setUint32(16, offset, true);
+        return new Blob([...parts, ...central, end.buffer], { type: 'application/zip' });
+    }
+    // Liest das Inhaltsverzeichnis eines ZIPs; Dateiinhalte werden erst bei Bedarf als Blob-Ausschnitt geholt
+    async function readZip(file) {
+        const size = file.size, tailLen = Math.min(size, 65557);
+        const tail = new DataView(await file.slice(size - tailLen, size).arrayBuffer());
+        let eocd = -1;
+        for (let i = tailLen - 22; i >= 0; i--) { if (tail.getUint32(i, true) === 0x06054b50) { eocd = i; break; } }
+        if (eocd < 0) throw new Error('Keine gültige ZIP-Datei.');
+        const count = tail.getUint16(eocd + 10, true), cdSize = tail.getUint32(eocd + 12, true), cdOff = tail.getUint32(eocd + 16, true);
+        if (cdOff === 0xFFFFFFFF) throw new Error('ZIP64-Dateien werden nicht unterstützt.');
+        const cd = new DataView(await file.slice(cdOff, cdOff + cdSize).arrayBuffer());
+        const dec = new TextDecoder(), entries = new Map();
+        let p = 0;
+        for (let n = 0; n < count && p + 46 <= cd.byteLength; n++) {
+            if (cd.getUint32(p, true) !== 0x02014b50) break;
+            const method = cd.getUint16(p + 10, true), csize = cd.getUint32(p + 20, true);
+            const nl = cd.getUint16(p + 28, true), el = cd.getUint16(p + 30, true), cl = cd.getUint16(p + 32, true), lho = cd.getUint32(p + 42, true);
+            entries.set(dec.decode(new Uint8Array(cd.buffer, p + 46, nl)), { method, csize, lho });
+            p += 46 + nl + el + cl;
+        }
+        const blobOf = async (name, type) => {
+            const e = entries.get(name);
+            if (!e) return null;
+            const lh = new DataView(await file.slice(e.lho, e.lho + 30).arrayBuffer());
+            const start = e.lho + 30 + lh.getUint16(26, true) + lh.getUint16(28, true);
+            const raw = file.slice(start, start + e.csize, type || '');
+            if (e.method === 0) return raw;
+            if (e.method === 8 && typeof DecompressionStream === 'function') return new Response(raw.stream().pipeThrough(new DecompressionStream('deflate-raw'))).blob().then(b => type ? b.slice(0, b.size, type) : b);
+            throw new Error('Nicht unterstützte ZIP-Kompression bei ' + name);
+        };
+        return { entries, blobOf };
+    }
+    // Backup-Datei (ZIP oder altes JSON) einlesen. Ergebnis: Daten-Objekt, dessen Bilder entweder ein Blob oder (alt) ein data:-String sind.
+    async function loadBackupData(file) {
+        const head = new Uint8Array(await file.slice(0, 2).arrayBuffer());
+        if (head[0] === 0x50 && head[1] === 0x4B) {
+            const zip = await readZip(file);
+            const metaBlob = await zip.blobOf('backup.json');
+            if (!metaBlob) throw new Error('backup.json fehlt im ZIP.');
+            const data = JSON.parse(await metaBlob.text());
+            if (!data.images || !Array.isArray(data.images)) throw new Error('Ungültiges Backup-Format.');
+            for (const im of data.images) {
+                if (im.blobFile) { im.blob = await zip.blobOf(im.blobFile, im.blobType); delete im.blobFile; delete im.blobType; }
+            }
+            return data;
+        }
+        return JSON.parse(await file.text());
+    }
+
+	async function importFullSystem(file) {
         if(!file) return; 
-        const rd = new FileReader();
-        rd.onload = async (e) => {
+        {
             try {
-                const data = JSON.parse(e.target.result);
+                showBusy('Backup wird gelesen…');
+                let data;
+                try { data = await loadBackupData(file); } finally { showBusy(''); }
                 
                 if (!data.images || !Array.isArray(data.images)) {
                     throw new Error("Ungültiges Backup-Format.");
@@ -2987,8 +3135,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
                 console.error("Import-Fehler:", err);
                 alert("Import fehlgeschlagen: " + err.message);
             }
-        }; 
-        rd.readAsText(file);
+        }
     }
 
     function renderTabs() {
@@ -3051,38 +3198,6 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
         btn.disabled = n === 0;
         btn.textContent = n > 1 ? `↩️ Rückgängig (${n})` : '↩️ Rückgängig';
         updateBackupChip();
-    }
-
-    // ===================== BACKUP-HINWEIS & DATENPFLEGE =====================
-    // Pro Gerät: Zeitpunkt des letzten Exports/Imports. Zeigt, wie lange das her ist und wie viele Duelle seitdem dazukamen.
-    const BACKUP_WARN_DAYS = 7, BACKUP_WARN_MATCHES = 300;
-    function getLastBackupAt() { try { return Number(localStorage.getItem('lastBackupAt')) || 0; } catch (e) { return 0; } }
-    function setLastBackupAt(t) { try { localStorage.setItem('lastBackupAt', String(t)); } catch (e) {} }
-    function agoText(t) {
-        const min = Math.floor((Date.now() - t) / 60000);
-        if (min < 1) return 'gerade eben';
-        if (min < 60) return 'vor ' + min + ' Min';
-        const h = Math.floor(min / 60);
-        if (h < 24) return 'vor ' + h + ' Std';
-        const d = Math.floor(h / 24);
-        return 'vor ' + d + (d === 1 ? ' Tag' : ' Tagen');
-    }
-    async function updateBackupChip() {
-        const el = document.getElementById('backup-chip');
-        if (!el || !db) return;
-        const last = getLastBackupAt();
-        let fresh = 0;
-        try { fresh = (await getMatches()).filter(m => (Number(m.time) || 0) > last).length; } catch (e) {}
-        let txt, warn;
-        if (!last) { txt = '💾 Noch kein Backup'; warn = fresh > 0; }
-        else {
-            txt = '💾 ' + agoText(last) + (fresh ? ' · +' + fresh + ' Duelle' : '');
-            warn = (Date.now() - last) > BACKUP_WARN_DAYS * 86400000 || fresh >= BACKUP_WARN_MATCHES;
-        }
-        el.textContent = txt;
-        el.style.borderColor = warn ? 'var(--accent-r, #f39c12)' : '';
-        el.style.color = warn ? 'var(--accent-r, #f39c12)' : '';
-        el.title = 'Backup jetzt exportieren' + (last ? ' (letztes: ' + new Date(last).toLocaleString('de-DE') + ')' : '');
     }
 
     // Nur die durch ein Duell veränderten Felder merken
@@ -3406,19 +3521,6 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		};
 		return defs.map((d, i) => ({ d: d, r: rank(d, i) })).sort((x, y) => x.r - y.r).map(x => x.d);
 	}
-	async function updateTagValue(imgId, tagName, newValue) {
-		const tx = db.transaction("images", "readwrite");
-		const store = tx.objectStore("images");
-		const img = await new Promise(r => store.get(imgId).onsuccess = e => r(e.target.result));
-	
-		if (!img) return;
-		if (!img.tags) img.tags = {};
-		if (!img.tags[tagName]) img.tags[tagName] = { value: "", showBadge: true };
-	
-		// Die Oberfläche wird bewusst nicht neu geladen, damit der Cursor-Fokus erhalten bleibt.
-		if (newValue !== undefined) img.tags[tagName].value = newValue;
-		store.put(img);
-	}
 	async function deleteTagDefinition(id, tagName, tabName, currentImgId) {
 		if (!confirm(`Eigenschaft "${tagName}" löschen?`)) return;
 	
@@ -3675,7 +3777,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			'<button class="secondary" onclick="openMaintenance()">🧹 Daten prüfen</button>' +
 			'<button class="danger" onclick="clearTab()">🗑️ Tab „' + escHtml(currentTab) + '“ leeren</button>' +
 		'</div>';
-		h += '<div style="' + hint + '">Export und Import enthalten Bilder, Duelle, Eigenschaften und diese Einstellungen.</div>';
+		h += '<div style="' + hint + '">Das Backup ist eine ZIP-Datei mit Bildern, Duellen, Eigenschaften und diesen Einstellungen. Alte JSON-Backups lassen sich weiter importieren.</div>';
 		h += '</div>';
 
 		h += '<div style="text-align:right;"><button class="secondary" onclick="resetSettings()">Einstellungen auf Standard zurücksetzen</button></div>';
@@ -3683,6 +3785,151 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		showModal(h);
 	}
 
+
+	// Wert übernehmen, bereinigen, speichern und Eingabefelder auf den gültigen Wert setzen
+	function updateSetting(key, raw) {
+		settings = sanitizeSettings({ ...settings, [key]: raw }, settings);
+		saveSettings();
+		syncSettingsInputs();
+	}
+
+	function updateShare(key, percentRaw) {
+		const n = Number(percentRaw);
+		updateSetting(key, (percentRaw === '' || !isFinite(n)) ? '' : n / 100);
+	}
+
+	function syncSettingsInputs() {
+		const set = (id, v) => { const el = document.getElementById(id); if (el && el.value != v) el.value = v; };
+		set('set-matchupMode', settings.matchupMode);
+		set('set-focusMatches', settings.focusMatches);
+		set('set-eloWindow', settings.eloWindow);
+		set('set-shareRival', Math.round(settings.shareRival * 100));
+		set('set-shareOutside', Math.round(settings.shareOutside * 100));
+		const nb = document.getElementById('set-shareNeighbor');
+		if (nb) nb.textContent = 100 - Math.round(settings.shareRival * 100) - Math.round(settings.shareOutside * 100);
+		const hintEl = document.getElementById('set-mode-hint');
+		if (hintEl) hintEl.textContent = MATCHUP_MODES[settings.matchupMode];
+		const std = document.getElementById('settings-standard');
+		if (std) std.style.opacity = (settings.matchupMode === 'STANDARD') ? '1' : '0.45';
+	}
+
+	function setTheme(v) {
+		const t = v === 'plain' ? 'plain' : 'arena';
+		document.documentElement.setAttribute('data-theme', t);
+		try { localStorage.setItem('theme', t); } catch (e) {}
+	}
+	// ----- Werte der Eigenschaften in den Einstellungen -----
+	const settingsOpenDefs = new Set();
+	async function toggleSettingsValues(defId) {
+		defId = Number(defId);
+		if (settingsOpenDefs.has(defId)) settingsOpenDefs.delete(defId); else settingsOpenDefs.add(defId);
+		await reopenSettings();
+	}
+	async function addTagOptionFromSettings(defId) {
+		const input = document.getElementById('set-newval-' + defId);
+		if (!input) return;
+		const added = await addTagOption(defId, input.value);
+		if (added === null && input.value.trim() !== '') return;
+		await reopenSettings();
+		const again = document.getElementById('set-newval-' + defId);
+		if (again) again.focus();
+	}
+
+	// ----- Reihenfolge der Eigenschaften -----
+	async function moveTagOrder(defId, dir) {
+		const defs = await getTagDefinitionsForTab(currentTab);
+		const i = defs.findIndex(d => d.id === defId), j = i + dir;
+		if (i < 0 || j < 0 || j >= defs.length) return;
+		[defs[i], defs[j]] = [defs[j], defs[i]];
+		settings.tagOrder[currentTab] = defs.map(d => d.tagName);
+		saveSettings();
+		await reopenSettings();
+		refreshOpenDuelTags();
+	}
+	function resetTagOrder() {
+		delete settings.tagOrder[currentTab];
+		saveSettings();
+		reopenSettings();
+		refreshOpenDuelTags();
+	}
+	// Einstellungsfenster neu zeichnen, ohne dass die Scroll-Position verloren geht
+	async function reopenSettings() {
+		const m = document.getElementById('modal');
+		const top = m ? m.scrollTop : 0;
+		await openSettings();
+		if (m) m.scrollTop = top;
+	}
+	function refreshOpenDuelTags() {
+		if (curL) renderTagBadges('left', curL);
+		if (curR) renderTagBadges('right', curR);
+	}
+	// ----- Werte gelöschter Eigenschaften -----
+	async function findOrphanTags(tab, defs) {
+		const names = new Set(defs.map(d => d.tagName));
+		const imgs = await idbGetAll(db.transaction("images").objectStore("images"));
+		const counts = new Map();
+		imgs.forEach(i => {
+			if (i.tab !== tab || !i.tags) return;
+			Object.keys(i.tags).forEach(n => {
+				if (names.has(n)) return;
+				const t = i.tags[n];
+				if (t && (String(t.value || '').trim() !== '' || (t.values && t.values.length))) counts.set(n, (counts.get(n) || 0) + 1);
+			});
+		});
+		return [...counts.entries()].map(([name, count]) => ({ name: name, count: count })).sort((a, b) => a.name.localeCompare(b.name, 'de'));
+	}
+	async function removeOrphanTag(name) {
+		if (!confirm('Die Werte von „' + name + '“ bei allen Bildern in „' + currentTab + '“ endgültig entfernen?\n\nDas lässt sich nicht rückgängig machen.')) return;
+		const tx = db.transaction("images", "readwrite");
+		const store = tx.objectStore("images");
+		const imgs = await idbGetAll(store);
+		imgs.forEach(i => {
+			if (i.tab === currentTab && i.tags && Object.prototype.hasOwnProperty.call(i.tags, name)) { delete i.tags[name]; store.put(i); }
+		});
+		await txDone(tx);
+		await reopenSettings();
+	}
+
+	function updateDailyGoal(el) {
+		const n = Math.round(Number(el.value));
+		if (el.value.trim() === '' || !isFinite(n) || n < 1) {
+			delete settings.dailyGoals[currentTab];
+			el.value = '';
+		} else {
+			settings.dailyGoals[currentTab] = Math.min(100000, n);
+			el.value = settings.dailyGoals[currentTab];
+		}
+		saveSettings();
+		loadImageCountAndUpdateProgress();
+	}
+	async function loadImageCountAndUpdateProgress() {
+		const ctx = await loadFilterContext(currentTab);
+		updateDailyProgress(ctx.images.length);
+	}
+
+	function updateTagWeight(el) {
+		const tab = el.dataset.tab, tag = el.dataset.tag;
+		const raw = el.value.trim();
+		const n = Number(raw);
+		if (!settings.tagWeights[tab]) settings.tagWeights[tab] = {};
+		if (raw === '' || !isFinite(n) || n < 0) {
+			delete settings.tagWeights[tab][tag];
+			el.value = '';
+		} else {
+			settings.tagWeights[tab][tag] = Math.min(100, n);
+			el.value = settings.tagWeights[tab][tag];
+		}
+		if (Object.keys(settings.tagWeights[tab]).length === 0) delete settings.tagWeights[tab];
+		saveSettings();
+	}
+
+	function resetSettings() {
+		if (!confirm("Alle Einstellungen (inkl. Tag-Gewichtungen) auf Standard zurücksetzen?")) return;
+		settings = sanitizeSettings(null);
+		saveSettings();
+		openSettings();
+	}
+	// ===================== /EINSTELLUNGSFENSTER =====================
 
 	// ===================== RANGLISTE: ANSICHT & MEHRFACHAUSWAHL =====================
 	const RANK_COLS = [
@@ -4010,7 +4257,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		if (e.key === 'Escape' || e.key === ' ' || e.key === 'Enter') closeLightbox();
 	}, true);
 
-	// ===================== DUPLIKAT-ERKENNUNG =====================
+	// ===================== BILDER HOCHLADEN & DUPLIKAT-ERKENNUNG =====================
 	// dHash: 9x8 Graustufenbild, 64 Bit aus „Pixel heller als rechter Nachbar“; ähnliche Bilder haben wenig unterschiedliche Bits.
 	async function computeImageHash(blob) {
 		try {
@@ -4133,150 +4380,6 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		await openMaintenance();
 	}
 
-	// Wert übernehmen, bereinigen, speichern und Eingabefelder auf den gültigen Wert setzen
-	function updateSetting(key, raw) {
-		settings = sanitizeSettings({ ...settings, [key]: raw }, settings);
-		saveSettings();
-		syncSettingsInputs();
-	}
-
-	function updateShare(key, percentRaw) {
-		const n = Number(percentRaw);
-		updateSetting(key, (percentRaw === '' || !isFinite(n)) ? '' : n / 100);
-	}
-
-	function syncSettingsInputs() {
-		const set = (id, v) => { const el = document.getElementById(id); if (el && el.value != v) el.value = v; };
-		set('set-matchupMode', settings.matchupMode);
-		set('set-focusMatches', settings.focusMatches);
-		set('set-eloWindow', settings.eloWindow);
-		set('set-shareRival', Math.round(settings.shareRival * 100));
-		set('set-shareOutside', Math.round(settings.shareOutside * 100));
-		const nb = document.getElementById('set-shareNeighbor');
-		if (nb) nb.textContent = 100 - Math.round(settings.shareRival * 100) - Math.round(settings.shareOutside * 100);
-		const hintEl = document.getElementById('set-mode-hint');
-		if (hintEl) hintEl.textContent = MATCHUP_MODES[settings.matchupMode];
-		const std = document.getElementById('settings-standard');
-		if (std) std.style.opacity = (settings.matchupMode === 'STANDARD') ? '1' : '0.45';
-	}
-
-	function setTheme(v) {
-		const t = v === 'plain' ? 'plain' : 'arena';
-		document.documentElement.setAttribute('data-theme', t);
-		try { localStorage.setItem('theme', t); } catch (e) {}
-	}
-	// ----- Werte der Eigenschaften in den Einstellungen -----
-	const settingsOpenDefs = new Set();
-	async function toggleSettingsValues(defId) {
-		defId = Number(defId);
-		if (settingsOpenDefs.has(defId)) settingsOpenDefs.delete(defId); else settingsOpenDefs.add(defId);
-		await reopenSettings();
-	}
-	async function addTagOptionFromSettings(defId) {
-		const input = document.getElementById('set-newval-' + defId);
-		if (!input) return;
-		const added = await addTagOption(defId, input.value);
-		if (added === null && input.value.trim() !== '') return;
-		await reopenSettings();
-		const again = document.getElementById('set-newval-' + defId);
-		if (again) again.focus();
-	}
-
-	// ----- Reihenfolge der Eigenschaften -----
-	async function moveTagOrder(defId, dir) {
-		const defs = await getTagDefinitionsForTab(currentTab);
-		const i = defs.findIndex(d => d.id === defId), j = i + dir;
-		if (i < 0 || j < 0 || j >= defs.length) return;
-		[defs[i], defs[j]] = [defs[j], defs[i]];
-		settings.tagOrder[currentTab] = defs.map(d => d.tagName);
-		saveSettings();
-		await reopenSettings();
-		refreshOpenDuelTags();
-	}
-	function resetTagOrder() {
-		delete settings.tagOrder[currentTab];
-		saveSettings();
-		reopenSettings();
-		refreshOpenDuelTags();
-	}
-	// Einstellungsfenster neu zeichnen, ohne dass die Scroll-Position verloren geht
-	async function reopenSettings() {
-		const m = document.getElementById('modal');
-		const top = m ? m.scrollTop : 0;
-		await openSettings();
-		if (m) m.scrollTop = top;
-	}
-	function refreshOpenDuelTags() {
-		if (curL) renderTagBadges('left', curL);
-		if (curR) renderTagBadges('right', curR);
-	}
-	// ----- Werte gelöschter Eigenschaften -----
-	async function findOrphanTags(tab, defs) {
-		const names = new Set(defs.map(d => d.tagName));
-		const imgs = await idbGetAll(db.transaction("images").objectStore("images"));
-		const counts = new Map();
-		imgs.forEach(i => {
-			if (i.tab !== tab || !i.tags) return;
-			Object.keys(i.tags).forEach(n => {
-				if (names.has(n)) return;
-				const t = i.tags[n];
-				if (t && (String(t.value || '').trim() !== '' || (t.values && t.values.length))) counts.set(n, (counts.get(n) || 0) + 1);
-			});
-		});
-		return [...counts.entries()].map(([name, count]) => ({ name: name, count: count })).sort((a, b) => a.name.localeCompare(b.name, 'de'));
-	}
-	async function removeOrphanTag(name) {
-		if (!confirm('Die Werte von „' + name + '“ bei allen Bildern in „' + currentTab + '“ endgültig entfernen?\n\nDas lässt sich nicht rückgängig machen.')) return;
-		const tx = db.transaction("images", "readwrite");
-		const store = tx.objectStore("images");
-		const imgs = await idbGetAll(store);
-		imgs.forEach(i => {
-			if (i.tab === currentTab && i.tags && Object.prototype.hasOwnProperty.call(i.tags, name)) { delete i.tags[name]; store.put(i); }
-		});
-		await txDone(tx);
-		await reopenSettings();
-	}
-
-	function updateDailyGoal(el) {
-		const n = Math.round(Number(el.value));
-		if (el.value.trim() === '' || !isFinite(n) || n < 1) {
-			delete settings.dailyGoals[currentTab];
-			el.value = '';
-		} else {
-			settings.dailyGoals[currentTab] = Math.min(100000, n);
-			el.value = settings.dailyGoals[currentTab];
-		}
-		saveSettings();
-		loadImageCountAndUpdateProgress();
-	}
-	async function loadImageCountAndUpdateProgress() {
-		const ctx = await loadFilterContext(currentTab);
-		updateDailyProgress(ctx.images.length);
-	}
-
-	function updateTagWeight(el) {
-		const tab = el.dataset.tab, tag = el.dataset.tag;
-		const raw = el.value.trim();
-		const n = Number(raw);
-		if (!settings.tagWeights[tab]) settings.tagWeights[tab] = {};
-		if (raw === '' || !isFinite(n) || n < 0) {
-			delete settings.tagWeights[tab][tag];
-			el.value = '';
-		} else {
-			settings.tagWeights[tab][tag] = Math.min(100, n);
-			el.value = settings.tagWeights[tab][tag];
-		}
-		if (Object.keys(settings.tagWeights[tab]).length === 0) delete settings.tagWeights[tab];
-		saveSettings();
-	}
-
-	function resetSettings() {
-		if (!confirm("Alle Einstellungen (inkl. Tag-Gewichtungen) auf Standard zurücksetzen?")) return;
-		settings = sanitizeSettings(null);
-		saveSettings();
-		openSettings();
-	}
-	// ===================== /EINSTELLUNGSFENSTER =====================
 
 	// ===================== MATCH-CACHE =====================
 	// Alle Duelle werden einmal gelesen und im Speicher gehalten (IndexedDB bleibt die Quelle der Wahrheit).
