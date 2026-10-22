@@ -558,7 +558,8 @@
 		background: rgba(255, 255, 255, 0.2);
 		border-radius: 3px;
 	}
-	.pokemon-bg {
+	/* Pro Tab einstellbar (Einstellungen → Bilddarstellung): ganzes Bild statt Zuschnitt */
+	.fit-contain {
 		background-size: contain !important;
 		background-repeat: no-repeat !important;
 		background-position: center center !important;
@@ -779,6 +780,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 .modal.details-mode .modal-content { box-sizing: border-box; max-width: 1900px; width: calc(100vw - 36px); padding: 20px 26px 24px; }
 .dt-grid { display: grid; grid-template-columns: minmax(230px, 0.75fr) minmax(340px, 1.5fr) minmax(320px, 1.2fr); gap: clamp(14px, 1.8vw, 26px); align-items: start; }
 .dt-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.dt-img.fit-contain-img, .st-img.fit-contain-img { object-fit: contain; background: rgba(0,0,0,0.4); }
 .dt-img { width: 100%; height: min(54vh, 520px); object-fit: cover; border: 1px solid var(--line, #333); box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
 .dt-box { padding-top: 5px; border-top: 1px solid var(--line, #222); }
 .dt-work > .dt-box { border-top: 0; padding: 12px; background: var(--surface, #111); border: 1px solid var(--line, #222); border-radius: 14px; }
@@ -970,7 +972,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		eloWindow: 100,           // STANDARD: "Gleicher Elo-Bereich" = +/- so viele Elo-Punkte
 		shareOutside: 0.25,       // STANDARD: Anteil Zufallsgegner von außerhalb des Elo-Bereichs
 		shareRival: 0.15,         // STANDARD: Anteil Rivalen (hat das Bild keine, geht der Anteil an die Elo-Nachbarn)
-		tagOrder: {},             // Reihenfolge der Eigenschaften pro Tab: { "<Tab>": ["Name", ...] } (fehlt der Tab = Standardreihenfolge)
+		tagOrder: {},             // Reihenfolge der Eigenschaften pro Tab: { "<Tab>": ["Name", ...] } (fehlt der Tab = Anlegereihenfolge)
+		imageFit: {},             // Bilddarstellung pro Tab: { "<Tab>": "contain" } = ganzes Bild zeigen, z. B. bei quadratischen Bildern (fehlt der Tab = Zuschnitt)
 		dailyGoals: {},           // Tagesziel pro Tab: { "<Tab>": Anzahl } (fehlt der Tab = automatisch berechnet)
 		tagWeights: {}            // Rivalen-Vorschläge: { "<Tab>": { "<Tag>": Gewicht } } (leer = Standardgewicht, 0 = ignorieren)
 	};
@@ -1006,7 +1009,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			shareRival: num(r.shareRival, 0, 1, d.shareRival),
 			tagWeights: {},
 			dailyGoals: {},
-			tagOrder: {}
+			tagOrder: {},
+			imageFit: {}
 		};
 		const to = (r.tagOrder && typeof r.tagOrder === 'object') ? r.tagOrder : d.tagOrder;
 		Object.keys(to || {}).forEach(tab => {
@@ -1015,6 +1019,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 				if (names.length) out.tagOrder[tab] = names.filter((n, i) => names.indexOf(n) === i);
 			}
 		});
+		const fit = (r.imageFit && typeof r.imageFit === 'object') ? r.imageFit : d.imageFit;
+		Object.keys(fit || {}).forEach(tab => { if (fit[tab] === 'contain') out.imageFit[tab] = 'contain'; });
 		const dg = (r.dailyGoals && typeof r.dailyGoals === 'object') ? r.dailyGoals : d.dailyGoals;
 		Object.keys(dg || {}).forEach(tab => {
 			const n = Math.round(Number(dg[tab]));
@@ -1958,7 +1964,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
         // --- SPALTE 1: Bild, Links, Aktionen ---
         html += '<div class="dt-col dt-media">';
 
-        html += '   <img src="' + url + '" class="dt-img" style="border-radius:12px; border: 1px solid #333; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">';
+        html += '   <img src="' + url + '" class="dt-img' + (isFitContain(img.tab) ? ' fit-contain-img' : '') + '" style="border-radius:12px; border: 1px solid #333; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">';
 
         // Link-Icon Bereich
         html += '   <div style="display:flex; flex-wrap:wrap; gap:10px; justify-content:center; align-items:center; min-height:40px; padding: 5px; background:rgba(0,0,0,0.2); border-radius:8px;">';
@@ -2408,10 +2414,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
             container.id = `container-${side}`;
         }
         
-        // --- NEU: Prüfen, ob es sich um einen Pokémon-Tab handelt ---
-        const isPokemon = (img.tab === 'Pokémon' || currentTab === 'Pokémon');
-        d.classList.toggle('pokemon-bg', isPokemon);
-        // -------------------------------------------------------------
+        d.classList.toggle('fit-contain', isFitContain(img.tab || currentTab));
 
         d.style.backgroundImage = `url("${url}")`;
         d.style.backgroundPositionY = (img.y || 50) + "%";
@@ -3212,16 +3215,19 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			};
 		});
 	}
-	// Frühere feste Reihenfolge aus dem Code; gilt für Tabs ohne eigene Reihenfolge in den Einstellungen
-	const DEFAULT_TAG_ORDER = ["Flag", "Cup", "Year", "Herkunft", "Spezies", "Haarfarbe", "Dex", "Gen", "Type", "Form"];
-	// Eigene Reihenfolge (Einstellungen) zuerst, danach die Standardreihenfolge, danach alle übrigen in Anlegereihenfolge
+	// Eigene Reihenfolge (Einstellungen) zuerst, danach alle übrigen in Anlegereihenfolge
+	const isFitContain = tab => !!(settings.imageFit && settings.imageFit[tab] === 'contain');
+	function setImageFit(on) {
+		if (on) settings.imageFit[currentTab] = 'contain'; else delete settings.imageFit[currentTab];
+		saveSettings();
+		if (typeof loadMatchup === 'function') loadMatchup();
+	}
 	function sortTagDefs(tab, defs) {
 		const custom = (settings.tagOrder && settings.tagOrder[tab]) || [];
 		const rank = (d, i) => {
 			const c = custom.indexOf(d.tagName);
 			if (c >= 0) return c;
-			const f = DEFAULT_TAG_ORDER.indexOf(d.tagName);
-			return 1000 + (f >= 0 ? f : 500 + i);
+			return 1000 + i;
 		};
 		return defs.map((d, i) => ({ d: d, r: rank(d, i) })).sort((x, y) => x.r - y.r).map(x => x.d);
 	}
@@ -3377,6 +3383,14 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		h += '<div style="' + hint + '">Leer = automatisch (aktuell <b>' + autoGoal + '</b>, berechnet aus der Bilderzahl dieses Tabs). Gilt für Fortschrittsanzeige und Statistik.</div>';
 		h += '</div>';
 
+		// --- Bilddarstellung ---
+		h += '<div style="' + box + '">';
+		h += '<h3 style="' + title + '">Bilddarstellung (Tab „' + escHtml(currentTab) + '“)</h3>';
+		h += '<div style="' + row + ' margin-bottom:0;"><label for="set-imageFit">Ganzes Bild zeigen (z. B. quadratische Bilder)</label>' +
+			'<input id="set-imageFit" type="checkbox" ' + (isFitContain(currentTab) ? 'checked' : '') + ' onchange="setImageFit(this.checked)"></div>';
+		h += '<div style="' + hint + '">Aus = Bilder füllen den Rahmen und werden bei Bedarf zugeschnitten (Hochformat). An = nichts wird abgeschnitten, dafür können seitlich Ränder entstehen. Gilt pro Tab und wird im Backup gespeichert.</div>';
+		h += '</div>';
+
 		// --- Fokus ---
 		h += '<div style="' + box + '">';
 		h += '<h3 style="' + title + '">Fokus-Modus</h3>';
@@ -3438,8 +3452,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 				(settings.tagOrder[currentTab] ? ' · <a href="#" onclick="resetTagOrder(); return false;" style="color:var(--accent);">auf Standard zurücksetzen</a>' : '') + '</div>';
 			h += '<div style="' + hint + ' margin-top:8px;">' +
 				'<b>Exakt:</b> ein Wert aus einer Liste, gleicher Wert zählt als Übereinstimmung.<br>' +
-				'<b>Mehrfachauswahl:</b> mehrere Werte pro Bild (z. B. Pokémon-Typen), gewertet wird der Anteil gemeinsamer Werte.<br>' +
-				'<b>Zahl (±):</b> freie Zahl (z. B. Jahr), ein Abstand bis zur Toleranz zählt als Übereinstimmung.<br>' +
+				'<b>Mehrfachauswahl:</b> mehrere Werte pro Bild (z. B. mehrere Kategorien), gewertet wird der Anteil gemeinsamer Werte.<br>' +
+				'<b>Zahl (±):</b> freie Zahl (z. B. eine Jahreszahl), ein Abstand bis zur Toleranz zählt als Übereinstimmung.<br>' +
 				'Gewicht: leer = Standard (' + RIVAL_DEFAULT_TAG_WEIGHT + '), 0 = Eigenschaft wird bei den Rivalen-Vorschlägen ignoriert, je höher, desto mehr zählt sie.</div>';
 		}
 		h += '</div>';
@@ -5178,6 +5192,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		[[imgA, 'Left'], [imgB, 'Right']].forEach(([img, side]) => {
 			const el = document.getElementById('studio' + side + 'Img');
 			el.src = getUrl(img);
+			el.classList.toggle('fit-contain-img', isFitContain(img.tab));
 			el.style.objectPosition = `center ${(img.y !== undefined ? img.y : 50)}%`;
 			document.getElementById('studio' + side + 'Name').innerText = img.name || 'Eintrag ' + img.id;
 			document.getElementById('studio' + side + 'Elo').innerHTML = `<b>${Math.round(img.elo)}</b> Elo · Platz ${rankOf(img)} von ${n}`;
