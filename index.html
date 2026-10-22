@@ -947,9 +947,12 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 
     /* Fenster: Vollbild */
     html[data-theme] .modal, html[data-theme] .modal.studio-mode, html[data-theme] .modal.details-mode, html[data-theme] .modal.list-mode { padding: 0; }
-    html[data-theme] .modal-content, html[data-theme] .modal.studio-mode .modal-content, html[data-theme] .modal.details-mode .modal-content, html[data-theme] .modal.list-mode .modal-content { box-sizing: border-box; width: 100%; max-width: none; min-height: 100%; border-radius: 0; border-left: 0; border-right: 0; padding: 16px 12px calc(20px + env(safe-area-inset-bottom)); }
-    html[data-theme] .modal-content > span { right: 14px !important; top: 8px !important; font-size: 2.2em !important; padding: 4px 10px; z-index: 5; }
-    html[data-theme] #modal-body { overflow-x: auto; }
+    html[data-theme] .modal-content, html[data-theme] .modal.studio-mode .modal-content, html[data-theme] .modal.details-mode .modal-content, html[data-theme] .modal.list-mode .modal-content { box-sizing: border-box; width: 100%; max-width: none; min-height: 100%; border-radius: 0; border-left: 0; border-right: 0; padding: calc(env(safe-area-inset-top) + 16px) 12px calc(20px + env(safe-area-inset-bottom)); }
+    html[data-theme] .modal { -webkit-backdrop-filter: none; backdrop-filter: none; }   /* sonst scrollt das fixierte Schließen-Kreuz mit */
+    /* Schließen-Kreuz: immer sichtbar, unterhalb von Notch/Statusleiste, bleibt beim Scrollen stehen */
+    html[data-theme] .modal-content > span { position: fixed !important; right: 12px !important; top: calc(env(safe-area-inset-top) + 10px) !important; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; font-size: 1.9em !important; line-height: 1; background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.22); border-radius: 50%; z-index: 1100; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+    html[data-theme] #modal-body { overflow-x: auto; padding-right: 0; }
+    html[data-theme] #modal-body > h2:first-child, html[data-theme] #modal-body > div > h2:first-child { padding-right: 52px; }
     html[data-theme] .dt-hchip { padding: 4px 10px; }
     html[data-theme] .dt-nav { margin-left: 0 !important; }
     html[data-theme] .dt-img { height: min(46vh, 420px); }
