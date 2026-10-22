@@ -24,7 +24,8 @@
             --bg: #0f0f0f; 
             --card: #1a1a1a; 
             --text: #eee; 
-            --accent: #0078d7;  /* Linke Seite (Blau) */
+            --accent: #0078d7;  /* Akzentfarbe (per Tab änderbar) */
+            --side-l: #0078d7;  /* Linke Seite im Duell (fest Blau) */
             --accent-r: #f39c12; /* Rechte Seite (Orange/Gold) */
             --win: #2ecc71; 
             --loss: #e74c3c; 
@@ -211,7 +212,7 @@
 		}
         #prob-container { width: 140px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 15px; }
         #win-chance-bar { width: 16px; height: 250px; background: #222; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column-reverse; border: 1px solid #444; }
-        #chance-l { background: var(--accent); transition: height 0.4s cubic-bezier(0.4, 0, 0.2, 1); width: 100%; }
+        #chance-l { background: var(--side-l); transition: height 0.4s cubic-bezier(0.4, 0, 0.2, 1); width: 100%; }
         #chance-r { background: #666; transition: height 0.4s cubic-bezier(0.4, 0, 0.2, 1); width: 100%; }
 
         /* Feedback Toast */
@@ -273,7 +274,7 @@
 			overflow: hidden; 
 			display: flex; 
 		}
-		.h2h-bar-fill { background: var(--accent); height: 100%; transition: width 0.5s; }
+		.h2h-bar-fill { background: var(--side-l); height: 100%; transition: width 0.5s; }
 		
 		/* Bestehendes Rank-Badge bleibt gleich */
 		.rank-badge {
@@ -579,7 +580,8 @@ html[data-theme="arena"] {
     --bg: #17162a;
     --card: #211f38;
     --text: #ece9f7;
-    --accent: #7b96ff;      /* linke Ecke: Kobalt */
+    --accent: #7b96ff;      /* Akzentfarbe (per Tab änderbar) */
+    --side-l: #7b96ff;      /* linke Ecke im Duell: Kobalt (fest) */
     --accent-r: #ffb43a;    /* rechte Ecke: Bernstein */
     --win: #5fd6a0;
     --loss: #ff7070;
@@ -672,7 +674,7 @@ html[data-theme="arena"] #name-left, html[data-theme="arena"] #name-right {
 }
 html[data-theme="arena"] #stats-left, html[data-theme="arena"] #stats-right { font-size: 0.86em !important; color: var(--muted) !important; }
 html[data-theme="arena"] #stats-left span, html[data-theme="arena"] #stats-right span { font-weight: 700; }
-html[data-theme="arena"] #img-left .glass-footer { border-left: 4px solid var(--accent); }
+html[data-theme="arena"] #img-left .glass-footer { border-left: 4px solid var(--side-l); }
 html[data-theme="arena"] #img-right .glass-footer { border-left: 4px solid var(--accent-r); }
 html[data-theme="arena"] .rank-badge { background: rgba(14,13,30,0.72); border-radius: 999px; padding: 5px 12px; border-color: rgba(255,255,255,0.18); font-weight: 800; }
 html[data-theme="arena"] .peak-badge { border-radius: 999px; top: 52px; }
@@ -1051,18 +1053,18 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			<!-- MITTE: CHANCEN / DUELLE -->
 			<div id="prob-container">
 				<div style="font-size: 0.7em; color: #888; text-transform: uppercase;">Chance</div>
-				<div id="win-chance-bar"><div id="chance-r" style="background: var(--accent-r);"></div> <div id="chance-l" style="background: var(--accent);"></div>   </div>
-				<div id="prob-text" style="font-size: 0.9em; font-weight: bold; color: var(--accent);">50/50</div>
+				<div id="win-chance-bar"><div id="chance-r" style="background: var(--accent-r);"></div> <div id="chance-l" style="background: var(--side-l);"></div>   </div>
+				<div id="prob-text" style="font-size: 0.9em; font-weight: bold; color: var(--side-l);">50/50</div>
 				<div id="elo-gap" class="cp-gap"></div>
 				<div id="rival-badge" style="display:none; margin-top:6px; background:rgba(231,76,60,0.18); border:1px solid #e74c3c; color:#ff8a7a; border-radius:12px; padding:2px 10px; font-size:0.75em; font-weight:bold;">⚔️ Rivalen</div>
 				
 				<div class="h2h-box" id="h2h-ui">
 					<div id="h2h-count" style="font-weight: bold; color: #aaa;">0 Duelle</div>
 					<div class="h2h-bar-bg">
-						<div id="h2h-bar-fill" class="h2h-bar-fill" style="width: 50%; background: var(--accent);"></div>
+						<div id="h2h-bar-fill" class="h2h-bar-fill" style="width: 50%; background: var(--side-l);"></div>
 					</div>
 					<div id="h2h-ratio" style="display:flex; justify-content: space-between; font-family: monospace;">
-						<span style="color:var(--accent)" id="h2h-win-l">0</span>
+						<span style="color:var(--side-l)" id="h2h-win-l">0</span>
 						<span>:</span>
 						<span style="color:var(--accent-r)" id="h2h-win-r">0</span>
 					</div>
@@ -2618,7 +2620,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
             const hist = (img.history && img.history.length ? img.history : [Math.round(img.elo)]).slice(-24);
             const lo = Math.min(...hist), hi = Math.max(...hist), span = Math.max(1, hi - lo);
             const pts = hist.map((v, i) => (hist.length === 1 ? 0 : (i / (hist.length - 1)) * 96 + 2).toFixed(1) + ',' + (24 - ((v - lo) / span) * 20 - 2).toFixed(1)).join(' ');
-            const col = side === 'left' ? 'var(--accent)' : 'var(--accent-r)';
+            const col = side === 'left' ? 'var(--side-l)' : 'var(--accent-r)';
             const full = img.history || [];
             const back = full.length > 5 ? full[full.length - 6] : (full[0] !== undefined ? full[0] : img.elo);
             const trend = Math.round(img.elo - back);
@@ -2696,7 +2698,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		const percL = Math.round(expL * 100);
 		const percR = Math.round((1 - expL) * 100);
 		document.getElementById('prob-text').innerHTML = 
-			`<span style="color:var(--accent)">${percL}</span> / <span style="color:var(--accent-r)">${percR}</span>`;
+			`<span style="color:var(--side-l)">${percL}</span> / <span style="color:var(--accent-r)">${percR}</span>`;
 		const gapEl = document.getElementById('elo-gap');
 		if (gapEl) {
 			const diff = Math.round(Math.abs(curL.elo - curR.elo));
