@@ -4336,32 +4336,74 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		const images = await idbGetAll(tx.objectStore("images"));
 		const matches = await idbGetAll(tx.objectStore("matches"));
 		const defs = await idbGetAll(tx.objectStore("tagDefinitions"));
-		const thumbKeys = await new Promise(r => { tx.objectStore("thumbs").getAllKeys().onsuccess = e => r(e.target.result); });
-		const ids = new Set(images.map(i => i.id));
-		const orphanMatches = matches.filter(m => !ids.has(m.leftId) || !ids.has(m.rightId));
-		const orphanThumbs = thumbKeys.filter(k => !ids.has(k));
-		let badRivals = 0, orphanTagValues = 0;
-		const defKey = new Set(defs.map(d => d.tab + '\u0000' + d.tagName));
-		images.forEach(i => {
-			badRivals += (i.rivals || []).filter(r => !ids.has(r.id)).length;
-			Object.keys(i.tags || {}).forEach(n => { if (!defKey.has(i.tab + '\u0000' + n)) orphanTagValues++; });
+		const thumbs = await idbGetAll(tx.objectStore("thumbs"));
+		const byId = new Map(images.map(i => [i.id, i]));
+		const orphanMatches = matches.filter(m => !byId.has(m.leftId) || !byId.has(m.rightId));
+		const orphanThumbs = thumbs.filter(t => !byId.has(t.id));
+		// Duelle nach dem fehlenden Bild gruppieren
+		const gone = new Map();
+		orphanMatches.forEach(m => {
+			[[m.leftId, m.rightId, 'left'], [m.rightId, m.leftId, 'right']].forEach(([me, other, side]) => {
+				if (byId.has(me)) return;
+				const g = gone.get(me) || { id: me, n: 0, wins: 0, last: 0, tabs: new Set(), partners: new Map() };
+				g.n++; if (m.winnerId === side) g.wins++;
+				g.last = Math.max(g.last, Number(m.time) || 0); if (m.tab) g.tabs.add(m.tab);
+				const o = byId.get(other); if (o) g.partners.set(o.name, (g.partners.get(o.name) || 0) + 1);
+				gone.set(me, g);
+			});
 		});
-		return { images, matches, orphanMatches, orphanThumbs, badRivals, orphanTagValues };
+		const badRivals = [];
+		const defKey = new Set(defs.map(d => d.tab + '\u0000' + d.tagName));
+		const orphanTags = new Map();
+		images.forEach(i => {
+			(i.rivals || []).forEach(r => { if (!byId.has(r.id)) badRivals.push({ owner: i.name, ownerId: i.id, rivalId: r.id, status: r.status }); });
+			Object.keys(i.tags || {}).forEach(n => {
+				if (defKey.has(i.tab + '\u0000' + n)) return;
+				const k = i.tab + '\u0000' + n, g = orphanTags.get(k) || { tab: i.tab, name: n, count: 0, values: new Set() };
+				const v = String((i.tags[n] && i.tags[n].value) || '').trim();
+				g.count++; if (v) g.values.add(v);
+				orphanTags.set(k, g);
+			});
+		});
+		return { images, matches, orphanMatches, orphanThumbs, badRivals, orphanTags: [...orphanTags.values()], gone: [...gone.values()].sort((a, b) => b.n - a.n) };
 	}
 	async function openMaintenance() {
 		const r = await scanData();
-		const row = (label, n) => '<tr><td style="padding:6px 8px;">' + label + '</td><td style="padding:6px 8px; text-align:right; font-weight:bold; color:' + (n ? 'var(--accent-r, #f39c12)' : 'var(--win, #2ecc71)') + ';">' + n + '</td></tr>';
-		let h = '<div style="max-width:560px; margin:0 auto;"><h2 style="margin:0 0 15px 0;">🧹 Daten prüfen</h2>';
-		h += '<div style="color:#888; font-size:0.85em; margin-bottom:12px;">' + r.images.length + ' Bilder, ' + r.matches.length + ' Duelle insgesamt.</div>';
-		h += '<table style="width:100%; border-collapse:collapse; background:var(--surface, #111); border:1px solid var(--line, #222); border-radius:10px;">';
-		h += row('Duelle zu gelöschten Bildern', r.orphanMatches.length);
-		h += row('Überflüssige Vorschaubilder', r.orphanThumbs.length);
-		h += row('Rivalen-Verweise auf gelöschte Bilder', r.badRivals);
-		h += row('Eigenschaftswerte ohne passende Eigenschaft', r.orphanTagValues);
-		h += '</table>';
-		const total = r.orphanMatches.length + r.orphanThumbs.length + r.badRivals;
-		h += '<div style="color:#777; font-size:0.8em; margin:10px 0;">„Bereinigen“ entfernt die ersten drei Punkte. Eigenschaftswerte ohne Eigenschaft bleiben bewusst erhalten (stellen sich wieder her, wenn du die Eigenschaft neu anlegst) und lassen sich in den Einstellungen entfernen.</div>';
+		const fmtDate = t => t ? new Date(t).toLocaleDateString('de-DE') : '–';
+		const sec = (title, n, body, hint) => '<details style="background:var(--surface, #111); border:1px solid var(--line, #222); border-radius:10px; margin-bottom:8px;"' + (n ? ' open' : '') + '>' +
+			'<summary style="cursor:pointer; padding:10px 12px; display:flex; justify-content:space-between; gap:10px;"><span>' + title + '</span>' +
+			'<b style="color:' + (n ? 'var(--accent-r, #f39c12)' : 'var(--win, #2ecc71)') + ';">' + n + '</b></summary>' +
+			'<div style="padding:0 12px 10px; font-size:0.85em; color:#aaa;">' + (hint ? '<div style="color:#777; margin-bottom:6px;">' + hint + '</div>' : '') + (n ? body : '<div style="color:#777;">Nichts gefunden.</div>') + '</div></details>';
+		const more = (arr, max, fn) => arr.slice(0, max).map(fn).join('') + (arr.length > max ? '<div style="color:#777; padding-top:4px;">… und ' + (arr.length - max) + ' weitere</div>' : '');
+		const li = t => '<div style="padding:3px 0; border-top:1px solid var(--line, #1d1d1d);">' + t + '</div>';
+		let h = '<div style="max-width:640px; margin:0 auto;"><h2 style="margin:0 0 6px 0;">🧹 Daten prüfen</h2>';
+		h += '<div style="color:#888; font-size:0.85em; margin-bottom:12px;">' + r.images.length + ' Bilder, ' + r.matches.length + ' Duelle insgesamt. Klappe die Punkte auf, um zu sehen, was genau gefunden wurde. Gelöscht wird erst nach Klick auf „Bereinigen“.</div>';
+
+		h += sec('Duelle zu gelöschten Bildern', r.orphanMatches.length,
+			'<div style="margin-bottom:4px;">Diese Duelle gehören zu Bildern, die es nicht mehr gibt (' + r.gone.length + ' gelöschte Bilder):</div>' +
+			more(r.gone, 25, g => li('<b style="color:#ccc;">Gelöschtes Bild #' + g.id + '</b> – ' + g.n + ' Duelle (' + g.wins + ' Siege, ' + (g.n - g.wins) + ' Niederlagen), zuletzt am ' + fmtDate(g.last) + (g.tabs.size ? ', Tab ' + [...g.tabs].map(escHtml).join('/') : '') +
+				(g.partners.size ? '<br><span style="color:#777;">gegen: ' + [...g.partners.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([n, c]) => escHtml(n) + (c > 1 ? ' (' + c + '×)' : '')).join(', ') + (g.partners.size > 5 ? ' …' : '') + '</span>' : ''))) +
+			'<div style="margin-top:8px; color:#c9a227;">Folge des Löschens: Die Elo-Werte stehen an den Bildern und bleiben unverändert. Diese Duelle zählen danach aber nicht mehr in Tagesziel, Aktivität und Statistiken mit.</div>',
+			'Entstehen, wenn ein Bild gelöscht wurde, aber seine Duelle in der Datenbank blieben.');
+
+		const kb = Math.round(r.orphanThumbs.reduce((n, t) => n + ((t.blob && t.blob.size) || 0), 0) / 1024);
+		h += sec('Überflüssige Vorschaubilder', r.orphanThumbs.length,
+			'<div>' + r.orphanThumbs.length + ' kleine Vorschaubilder (zusammen ca. ' + kb + ' KB) für Bilder-IDs, die es nicht mehr gibt: ' + escHtml(r.orphanThumbs.slice(0, 12).map(t => '#' + t.id).join(', ')) + (r.orphanThumbs.length > 12 ? ' …' : '') + '</div>' +
+			'<div style="margin-top:6px; color:#c9a227;">Folge des Löschens: keine – sie werden bei Bedarf neu erzeugt und gehören zu keinem Bild.</div>');
+
+		h += sec('Rivalen-Verweise auf gelöschte Bilder', r.badRivals.length,
+			more(r.badRivals, 25, b => li('<b style="color:#ccc;">' + escHtml(b.owner) + '</b> hat als Rivalen (' + (b.status === 'confirmed' ? 'bestätigt' : b.status === 'dismissed' ? 'abgelehnt' : escHtml(String(b.status))) + ') das gelöschte Bild #' + b.rivalId)) +
+			'<div style="margin-top:8px; color:#c9a227;">Folge des Löschens: Die Verweise ins Leere verschwinden. Echte Rivalen bleiben.</div>');
+
+		h += sec('Eigenschaftswerte ohne passende Eigenschaft', r.orphanTags.length,
+			more(r.orphanTags, 25, g => li('<b style="color:#ccc;">' + escHtml(g.name) + '</b> (Tab ' + escHtml(g.tab) + ') – bei ' + g.count + ' Bildern' + (g.values.size ? '<br><span style="color:#777;">Werte: ' + escHtml([...g.values].slice(0, 8).join(', ')) + (g.values.size > 8 ? ' …' : '') + '</span>' : ''))) +
+			'<div style="margin-top:8px; color:#8fbf8f;">Wird NICHT gelöscht: Die Werte bleiben gespeichert und tauchen wieder auf, wenn du die Eigenschaft mit gleichem Namen neu anlegst. Entfernen kannst du sie in den Einstellungen.</div>',
+			'Die Eigenschaft wurde gelöscht, ihre Werte stehen aber noch an den Bildern.');
+
+		const total = r.orphanMatches.length + r.orphanThumbs.length + r.badRivals.length;
+		h += '<div style="color:#777; font-size:0.8em; margin:10px 0;">„Bereinigen“ entfernt die ersten drei Punkte. Tipp: Mach vorher ein Backup (💾 oben).</div>';
 		h += '<div style="display:flex; gap:8px; justify-content:flex-end;"><button class="secondary" onclick="openSettings()">Zurück</button>' +
+			'<button class="secondary" onclick="exportFullSystem()">💾 Backup</button>' +
 			'<button ' + (total ? '' : 'disabled ') + 'onclick="runMaintenance()">Bereinigen</button></div></div>';
 		showModal(h);
 	}
