@@ -13,6 +13,11 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&display=swap" rel="stylesheet">
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#0f0f0f">
     <title>Image Ranker</title>
     <style>
 		:root { 
@@ -894,6 +899,68 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
     .st-lists { grid-template-columns: 1fr; }
     .modal.studio-mode { padding: 8px; }
     .modal.studio-mode .modal-content { padding: 14px; }
+}
+
+/* =====================================================================
+   SMARTPHONE (iPhone im Hochformat): Fokus aufs Abstimmen
+   Zwei Bilder nebeneinander, Chancen-Leiste oben, Werkzeugleiste zum Wischen,
+   Fenster füllen den Bildschirm, größere Tippflächen.
+   ===================================================================== */
+@media (max-width: 700px) {
+    html body { zoom: 1 !important; min-height: 0 !important; height: 100vh; height: 100dvh; padding-bottom: env(safe-area-inset-bottom); -webkit-tap-highlight-color: transparent; }
+    html[data-theme] input, html[data-theme] select, html[data-theme] textarea { font-size: 16px; }   /* verhindert das Hineinzoomen von iOS bei Eingaben */
+    html[data-theme] #tabs { padding: calc(6px + env(safe-area-inset-top)) 8px 6px; gap: 8px; }
+    html[data-theme] #tabs > button { white-space: nowrap; flex-shrink: 0; }
+    html[data-theme] .tab-container { flex-shrink: 0; }
+    html[data-theme] .tab { padding: 9px 14px; }
+    html[data-theme] #controls { flex-wrap: nowrap; overflow-x: auto; gap: 6px; padding: 6px 10px; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+    html[data-theme] #controls::-webkit-scrollbar { display: none; }
+    html[data-theme] #controls > * { flex-shrink: 0; }
+    html[data-theme] #controls > div[style*="flex:1"] { display: none; }
+    html[data-theme] #controls button { padding: 9px 12px; }
+    html[data-theme] #undo-btn { order: -2; }
+    html[data-theme] #counter { order: -1; }
+    html[data-theme] #backup-chip { display: none; }
+    html[data-theme] .sidebar { display: none !important; }
+    html[data-theme] #workspace { padding: 0 6px 6px; gap: 0; }
+    html[data-theme] #voting-area { padding: 4px 0 0; }
+    html[data-theme] #focus-status, html[data-theme] #filter-status, html[data-theme] #daily-status { font-size: 0.85em; }
+    html[data-theme] .cp-strip { gap: 6px; margin-bottom: 4px; }
+    html[data-theme] .cp-chip:nth-child(n+2) { display: none; }
+    html[data-theme] .glass-footer > div:nth-child(n+3) { display: none; }
+    html[data-theme] .cp-chip { min-height: 32px; padding: 3px 10px 3px 6px; border-radius: 12px; }
+
+    /* Duell: Chancenzeile oben, darunter zwei Bilder nebeneinander */
+    html[data-theme] #matchup-container { display: grid !important; grid-template-columns: 1fr 1fr; grid-template-rows: auto minmax(0, 1fr); gap: 6px 8px; width: 100%; flex: 1; align-items: stretch; }
+    html[data-theme] #prob-container { grid-column: 1 / -1; grid-row: 1; width: 100%; flex-direction: row; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px 12px; font-size: 0.95em; }
+    html[data-theme] #prob-container > div:first-child, html[data-theme] #win-chance-bar, html[data-theme] .h2h-bar-bg, html[data-theme] #h2h-ratio { display: none !important; }
+    html[data-theme] .h2h-box { background: none; border: 0; padding: 0; }
+    html[data-theme] .image-container { grid-row: 2; width: auto; max-width: none; height: 100%; max-height: none; aspect-ratio: auto; min-width: 0; min-height: 0; -webkit-user-select: none; user-select: none; }
+    html[data-theme] .image-container:hover { transform: none; box-shadow: none; }
+    html[data-theme] [id="container-left"], html[data-theme] [id="container-right"], html[data-theme] [id="container-left"]:hover, html[data-theme] [id="container-right"]:hover { transform: none; border-width: 3px; }
+    html[data-theme] .glass-footer { padding: 6px 8px; }
+    html[data-theme] .glass-footer > div:first-child { font-size: 0.95em; }
+    html[data-theme] .glass-footer > div + div { font-size: 0.7em !important; }
+    html[data-theme] .outside-tag-container { min-width: 0; order: 0; max-height: 28%; overflow-y: auto; padding: 5px; gap: 3px; --cols: 2 !important; }
+    html[data-theme] .outside-tag-container > div, html[data-theme] .outside-tag-container > span { flex: 0 0 calc((100% - 3px) / 2); font-size: 0.65em; }
+    .zoom-btn { opacity: 1; width: 36px; height: 36px; }
+
+    /* Fenster: Vollbild */
+    html[data-theme] .modal, html[data-theme] .modal.studio-mode, html[data-theme] .modal.details-mode, html[data-theme] .modal.list-mode { padding: 0; }
+    html[data-theme] .modal-content, html[data-theme] .modal.studio-mode .modal-content, html[data-theme] .modal.details-mode .modal-content, html[data-theme] .modal.list-mode .modal-content { box-sizing: border-box; width: 100%; max-width: none; min-height: 100%; border-radius: 0; border-left: 0; border-right: 0; padding: 16px 12px calc(20px + env(safe-area-inset-bottom)); }
+    html[data-theme] .modal-content > span { right: 14px !important; top: 8px !important; font-size: 2.2em !important; padding: 4px 10px; z-index: 5; }
+    html[data-theme] #modal-body { overflow-x: auto; }
+    html[data-theme] .dt-hchip { padding: 4px 10px; }
+    html[data-theme] .dt-nav { margin-left: 0 !important; }
+    html[data-theme] .dt-img { height: min(46vh, 420px); }
+    html[data-theme] .dt-tiles { grid-template-columns: repeat(2, 1fr); }
+    html[data-theme] #rank-table.tiles tbody { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+    html[data-theme] #bulk-bar { top: 0; }
+    #lightbox img { max-width: 100vw; max-height: 84vh; border-radius: 0; }
+}
+@media (hover: none) {
+    .zoom-btn { opacity: 1; }
+    .image-container:hover { transform: none !important; }
 }
     </style>
 </head>
@@ -3624,8 +3691,10 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	const RANK_DEFAULT_COLS = RANK_COLS.map(c => c.key);
 	let rankTagDefs = [], bulkSel = new Set();
 	function getRankView() {
-		try { const o = JSON.parse(localStorage.getItem('rankView')); if (o && typeof o === 'object') return o; } catch (e) {}
-		return {};
+		let o = {};
+		try { const v = JSON.parse(localStorage.getItem('rankView')); if (v && typeof v === 'object') o = v; } catch (e) {}
+		if (o.tiles === undefined && window.innerWidth <= 700) o.tiles = true;   // auf dem Handy standardmäßig Kacheln
+		return o;
 	}
 	function saveRankView(o) { try { localStorage.setItem('rankView', JSON.stringify(o)); } catch (e) {} }
 	function applyRankCols() {
