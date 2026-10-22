@@ -806,6 +806,38 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 #rank-table tr.bulk-sel { background: rgba(80,140,255,0.14); }
 #bulk-bar { position: sticky; top: -20px; z-index: 6; margin: 10px 0; padding: 10px 12px; background: var(--card, #1b1b1b); border: 1px solid var(--accent, #3b82f6); border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
 #bulk-bar select, #bulk-bar input[type=text], #bulk-bar input[type=number] { background: var(--surface-2, #1a1a1a); color: #eee; border: 1px solid var(--line, #444); border-radius: 6px; padding: 5px 8px; }
+/* ===== RIVALEN-ZENTRALE ===== */
+.rh-tabs { display: flex; gap: 8px; margin: 6px 0 14px; flex-wrap: wrap; align-items: center; }
+.rh-tab { background: var(--surface, #1a1a1a); color: #ccc; border: 1px solid var(--line, #333); border-radius: 999px; padding: 7px 16px; cursor: pointer; font-size: 0.9em; }
+.rh-tab.on { background: var(--accent, #3b82f6); color: #fff; border-color: transparent; }
+.rh-bar { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; color: #aaa; font-size: 0.85em; }
+.rh-bar input[type=range] { vertical-align: middle; }
+.rh-bar input[type=text] { background: var(--surface-2, #1a1a1a); color: #eee; border: 1px solid var(--line, #444); border-radius: 6px; padding: 5px 8px; }
+.rh-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(430px, 1fr)); gap: 10px; }
+.rh-row { display: flex; align-items: center; gap: 10px; background: var(--surface, #161616); border: 1px solid var(--line, #2a2a2a); border-radius: 14px; padding: 8px 10px; }
+.rh-side { width: 74px; text-align: center; font-size: 0.72em; color: #aaa; cursor: pointer; flex: 0 0 74px; }
+.rh-side img { width: 74px; height: 92px; object-fit: cover; border-radius: 9px; display: block; margin-bottom: 3px; }
+.rh-side span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rh-mid { flex: 1; min-width: 0; font-size: 0.8em; color: #bbb; display: flex; flex-direction: column; gap: 6px; }
+.rh-score { font-weight: bold; color: var(--accent, #3b82f6); }
+.rh-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.rh-chips i { font-style: normal; background: rgba(255,255,255,0.07); border-radius: 8px; padding: 1px 7px; font-size: 0.92em; }
+.rh-btns { display: flex; gap: 6px; }
+.rh-btns button { flex: 1; border: 1px solid var(--line, #444); background: var(--surface-2, #222); color: #eee; border-radius: 8px; padding: 5px 6px; cursor: pointer; font-size: 0.95em; }
+.rh-btns button.ok { border-color: #2e9b57; color: #7be0a3; }
+.rh-btns button.no:hover { border-color: #c0392b; color: #ff8d80; }
+.rh-graphwrap { position: relative; border: 1px solid var(--line, #2a2a2a); border-radius: 16px; background: var(--surface, #111); overflow: hidden; }
+#rh-svg { display: block; width: 100%; height: min(68vh, 760px); touch-action: none; cursor: grab; }
+#rh-svg.drag { cursor: grabbing; }
+.rh-zoom { position: absolute; right: 10px; top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.rh-zoom button { width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--line, #444); background: var(--surface-2, #222); color: #eee; cursor: pointer; font-size: 1.1em; }
+.rh-tip { position: absolute; left: 10px; bottom: 10px; background: rgba(0,0,0,0.75); color: #fff; padding: 4px 10px; border-radius: 8px; font-size: 0.8em; pointer-events: none; max-width: 70%; }
+.rh-clusters { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.rh-cl { border: 1px solid var(--line, #333); border-radius: 12px; padding: 6px 12px; font-size: 0.8em; cursor: pointer; background: var(--surface, #161616); color: #ccc; }
+.rh-cl.on { outline: 2px solid var(--accent, #3b82f6); }
+.rh-cl b { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+.rh-empty { padding: 30px; text-align: center; color: #888; }
+@media (max-width: 700px) { .rh-list { grid-template-columns: 1fr; } #rh-svg { height: 62vh; } }
 /* ===== DETAIL-FENSTER (breit, 3 Spalten) ===== */
 .modal.details-mode { padding: 18px; }
 .modal.details-mode .modal-content { box-sizing: border-box; max-width: 1900px; width: calc(100vw - 36px); padding: 20px 26px 24px; }
@@ -982,6 +1014,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	<button class="nav-btn" onclick="openMatchupStudio()">⚔️ Matchup Studio</button>
     <button id="filter-btn" onclick="openMatchFilter()">🔎 Filter</button>
     <button class="nav-btn" onclick="openTagStats()">🏷️ Tag-Statistik</button>
+    <button class="nav-btn" onclick="openRivalHub()">🕸️ Rivalen</button>
     <button class="secondary" id="undo-btn" onclick="undoLastMatch()" disabled>↩️ Rückgängig</button>
     <div style="flex:1"></div>
     <button class="secondary" id="backup-chip" onclick="exportFullSystem()" title="Backup jetzt exportieren">💾 –</button>
@@ -5549,7 +5582,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	//   Mehrfachauswahl:  Anteil gemeinsamer Werte (gemeinsam / insgesamt) * Gewicht
 	//   Zahl (±):         Abstand <= Toleranz -> volles Gewicht
 	// defsByName: Map Eigenschaftsname -> Definition
-	function computeRivalSuggestions(img, tabImages, defsByName) {
+	function computeRivalSuggestions(img, tabImages, defsByName, limit) {
 		const known = new Set((img.rivals || []).map(r => r.id));
 		const result = [];
 
@@ -5590,7 +5623,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 
 		// Höchster Score zuerst, bei Gleichstand die mit der ähnlichsten Elo
 		result.sort((a, b) => (b.score - a.score) || (Math.abs(a.img.elo - img.elo) - Math.abs(b.img.elo - img.elo)));
-		return result.slice(0, RIVAL_SUGGESTION_COUNT);
+		return result.slice(0, limit || RIVAL_SUGGESTION_COUNT);
 	}
 
 	function buildRivalSection(img, tabImages, tagDefs) {
@@ -5665,7 +5698,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	}
 
 	// Rivalenstatus für ein Paar setzen (symmetrisch). status: 'confirmed' | 'dismissed' | null (Eintrag entfernen)
-	async function setRivalStatus(aId, bId, status) {
+	async function setRivalStatus(aId, bId, status, after) {
 		aId = Number(aId); bId = Number(bId);
 		const tx = db.transaction("images", "readwrite");
 		const store = tx.objectStore("images");
@@ -5679,7 +5712,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			store.put(image);
 		});
 
-		tx.oncomplete = () => showDetailsByID(aId);
+		tx.oncomplete = () => { if (after) after(); else showDetailsByID(aId); };
 	}
 
 	async function addRivalByName(imgId) {
@@ -5699,6 +5732,268 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	}
 
 	// Alle abgelehnten Vorschläge dieses Bildes wieder freigeben (beidseitig)
+	// ===== RIVALEN-ZENTRALE (tabübergreifende Vorschläge + Netzwerk-Graph) =====
+	// Zustand lebt nur, solange das Fenster offen ist. Rivalen gibt es nur innerhalb eines Tabs.
+	let rivalHub = null;
+	const RH_PAGE = 60;
+
+	async function openRivalHub(view) {
+		const ctx = await loadFilterContext(currentTab);
+		if (ctx.images.length < 2) { alert("Für Rivalen braucht der Tab mindestens zwei Bilder."); return; }
+		rivalHub = { tab: currentTab, images: ctx.images, defsByName: ctx.defsByName, byId: new Map(ctx.images.map(i => [i.id, i])),
+			view: view || (rivalHub && rivalHub.view) || 'list', minScore: 1, query: '', shown: RH_PAGE, sugg: null, showSugg: true, focus: null, graph: null };
+		rivalHubComputeSuggestions();
+		showModal('<div id="rh-root"></div>');
+		document.getElementById('modal').classList.add('list-mode');
+		renderRivalHub();
+	}
+
+	// Alle Paare bewerten (symmetrisch, pro Paar der höhere der beiden Scores)
+	function rivalHubComputeSuggestions() {
+		const h = rivalHub, pairs = new Map();
+		h.images.forEach(a => {
+			computeRivalSuggestions(a, h.images, h.defsByName, 1e9).forEach(s => {
+				const lo = Math.min(a.id, s.img.id), hi = Math.max(a.id, s.img.id), key = lo + '-' + hi;
+				const old = pairs.get(key);
+				if (!old || s.score > old.score) pairs.set(key, { a: h.byId.get(lo), b: h.byId.get(hi), score: s.score, shared: s.shared.map(x => x.split(':')[0] === x ? x : x) });
+			});
+		});
+		// computeRivalSuggestions ignoriert Paare, die bei a schon bekannt sind -> Gegenseite prüfen
+		h.sugg = [...pairs.values()].filter(p => !(p.a.rivals || []).some(r => r.id == p.b.id) && !(p.b.rivals || []).some(r => r.id == p.a.id))
+			.sort((x, y) => (y.score - x.score) || (Math.abs(x.a.elo - x.b.elo) - Math.abs(y.a.elo - y.b.elo)));
+	}
+
+	function renderRivalHub() {
+		const h = rivalHub, root = document.getElementById('rh-root');
+		if (!h || !root) return;
+		const confirmed = rivalHubEdges().length;
+		root.innerHTML = '<h2 style="margin-top:0;">🕸️ Rivalen-Zentrale <small style="font-size:0.5em;color:#888;">Tab: ' + escHtml(h.tab) + '</small></h2>' +
+			'<div class="rh-tabs"><button class="rh-tab' + (h.view === 'list' ? ' on' : '') + '" onclick="rivalHubView(\'list\')">💡 Vorschläge (' + h.sugg.length + ')</button>' +
+			'<button class="rh-tab' + (h.view === 'graph' ? ' on' : '') + '" onclick="rivalHubView(\'graph\')">🕸️ Netzwerk (' + confirmed + ' Verbindungen)</button></div>' +
+			'<div id="rh-view"></div>';
+		if (h.view === 'list') renderRivalHubList(); else renderRivalHubGraph();
+	}
+	function rivalHubView(v) { rivalHub.view = v; renderRivalHub(); }
+
+	function rivalHubEdges() {
+		const h = rivalHub, out = [];
+		h.images.forEach(a => (a.rivals || []).forEach(r => {
+			if (r.status === 'confirmed' && a.id < r.id && h.byId.has(r.id)) out.push([a.id, r.id]);
+		}));
+		return out;
+	}
+
+	function renderRivalHubList() {
+		const h = rivalHub, view = document.getElementById('rh-view');
+		const maxScore = h.sugg.length ? Math.ceil(h.sugg[0].score) : 1;
+		const q = h.query.trim().toLowerCase();
+		const list = h.sugg.filter(p => p.score >= h.minScore && (!q || p.a.name.toLowerCase().includes(q) || p.b.name.toLowerCase().includes(q) || p.shared.some(s => s.toLowerCase().includes(q))));
+		const side = i => '<div class="rh-side" onclick="showDetailsByID(' + i.id + ')" title="Details öffnen"><img src="' + imgUrl(i, 'thumb') + '" alt=""><span>' + escHtml(i.name) + '</span><span>Elo ' + Math.round(i.elo) + '</span></div>';
+		let html = '<div class="rh-bar"><label>Mindest-Übereinstimmung <input type="range" id="rh-min" min="0.5" max="' + Math.max(maxScore, 1) + '" step="0.5" value="' + Math.min(h.minScore, Math.max(maxScore, 1)) + '" oninput="rivalHubSetMin(this.value)"> <b id="rh-min-val">' + h.minScore + '</b></label>' +
+			'<input type="text" id="rh-q" placeholder="Suche (Name oder Eigenschaft)" value="' + escHtml(h.query) + '" oninput="rivalHubSetQuery(this.value)">' +
+			'<span>' + list.length + ' Vorschläge</span>' +
+			'<button class="nav-btn" style="padding:5px 12px;" onclick="rivalHubResetDismissed()">Abgelehnte zurücksetzen</button></div>';
+		if (list.length === 0) html += '<div class="rh-empty">Keine Vorschläge für diese Einstellung.<br><small>Vorschläge entstehen aus gemeinsamen Eigenschaften (Gewichte in den Einstellungen).</small></div>';
+		else {
+			html += '<div class="rh-list">' + list.slice(0, h.shown).map(p =>
+				'<div class="rh-row" data-a="' + p.a.id + '" data-b="' + p.b.id + '">' + side(p.a) +
+				'<div class="rh-mid"><div><span class="rh-score">' + (Math.round(p.score * 10) / 10) + '</span> Übereinstimmung · ΔElo ' + Math.round(Math.abs(p.a.elo - p.b.elo)) + '</div>' +
+				'<div class="rh-chips">' + p.shared.map(s => '<i>' + escHtml(s) + '</i>').join('') + '</div>' +
+				'<div class="rh-btns"><button class="ok" onclick="rivalHubDecide(' + p.a.id + ',' + p.b.id + ',\'confirmed\')">⚔️ Rivalen</button><button class="no" onclick="rivalHubDecide(' + p.a.id + ',' + p.b.id + ',\'dismissed\')">✕ Nein</button></div></div>' + side(p.b) + '</div>').join('') + '</div>';
+			if (list.length > h.shown) html += '<div style="text-align:center;margin-top:14px;"><button class="nav-btn" onclick="rivalHub.shown += RH_PAGE; renderRivalHubList();">Mehr anzeigen (' + (list.length - h.shown) + ' weitere)</button></div>';
+		}
+		const keepFocus = document.activeElement && document.activeElement.id === 'rh-q';
+		view.innerHTML = html;
+		if (keepFocus) { const el = document.getElementById('rh-q'); el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+	}
+	function rivalHubSetMin(v) { rivalHub.minScore = Number(v); rivalHub.shown = RH_PAGE; renderRivalHubList(); }
+	function rivalHubSetQuery(v) { rivalHub.query = v; rivalHub.shown = RH_PAGE; renderRivalHubList(); }
+
+	function rivalHubApplyLocal(aId, bId, status) {
+		const h = rivalHub;
+		[[aId, bId], [bId, aId]].forEach(([x, y]) => {
+			const im = h.byId.get(x); if (!im) return;
+			im.rivals = (im.rivals || []).filter(r => r.id != y);
+			if (status) im.rivals.push({ id: y, status: status });
+		});
+	}
+	async function rivalHubDecide(aId, bId, status) {
+		const h = rivalHub;
+		await setRivalStatus(aId, bId, status, () => {
+			if (rivalHub !== h) return;
+			rivalHubApplyLocal(aId, bId, status);
+			h.sugg = h.sugg.filter(p => !(p.a.id == aId && p.b.id == bId) && !(p.a.id == bId && p.b.id == aId));
+			h.graph = null;
+			// nur die Zeile entfernen (Scrollposition bleibt), Zähler aktualisieren
+			const row = document.querySelector('.rh-row[data-a="' + Math.min(aId, bId) + '"][data-b="' + Math.max(aId, bId) + '"]');
+			if (row) row.remove();
+			const tabs = document.querySelectorAll('.rh-tab');
+			if (tabs[0]) tabs[0].textContent = '💡 Vorschläge (' + h.sugg.length + ')';
+			if (tabs[1]) tabs[1].textContent = '🕸️ Netzwerk (' + rivalHubEdges().length + ' Verbindungen)';
+			const sp = document.querySelector('.rh-bar span'); if (sp) sp.textContent = document.querySelectorAll('.rh-row').length + ' Vorschläge';
+		});
+	}
+	async function rivalHubResetDismissed() {
+		const h = rivalHub;
+		const n = h.images.reduce((s, i) => s + (i.rivals || []).filter(r => r.status === 'dismissed').length, 0) / 2;
+		if (!n) { alert("Es gibt keine abgelehnten Paare."); return; }
+		if (!confirm(n + " abgelehnte Paare wieder als Vorschläge zulassen?")) return;
+		const tx = db.transaction("images", "readwrite"), store = tx.objectStore("images");
+		h.images.forEach(i => {
+			if ((i.rivals || []).some(r => r.status === 'dismissed')) { i.rivals = i.rivals.filter(r => r.status !== 'dismissed'); store.put(i); }
+		});
+		tx.oncomplete = () => { if (rivalHub !== h) return; rivalHubComputeSuggestions(); renderRivalHub(); };
+	}
+
+	// ---- Netzwerk-Graph (eigene Kräfte-Simulation, SVG) ----
+	function rivalHubBuildGraph() {
+		const h = rivalHub, edges = rivalHubEdges().map(e => ({ a: e[0], b: e[1], kind: 'rival' }));
+		if (h.showSugg) h.sugg.slice(0, 40).forEach(p => edges.push({ a: p.a.id, b: p.b.id, kind: 'sugg' }));
+		const ids = new Set(); edges.forEach(e => { ids.add(e.a); ids.add(e.b); });
+		const nodes = [...ids].map((id, k) => {
+			const ang = k * 2.399963, rad = 30 * Math.sqrt(k + 1);
+			return { id: id, img: h.byId.get(id), x: Math.cos(ang) * rad, y: Math.sin(ang) * rad, vx: 0, vy: 0, deg: 0, fixed: false };
+		});
+		const nById = new Map(nodes.map(n => [n.id, n]));
+		edges.forEach(e => { e.na = nById.get(e.a); e.nb = nById.get(e.b); e.na.deg++; e.nb.deg++; });
+		// Cluster = Zusammenhangskomponenten der bestätigten Rivalen (Vorschläge bilden keine Cluster)
+		const parent = new Map(nodes.map(n => [n.id, n.id]));
+		const find = x => { while (parent.get(x) !== x) { parent.set(x, parent.get(parent.get(x))); x = parent.get(x); } return x; };
+		edges.filter(e => e.kind === 'rival').forEach(e => parent.set(find(e.a), find(e.b)));
+		const groups = new Map();
+		nodes.forEach(n => { const r = find(n.id); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(n); });
+		const clusters = [...groups.values()].sort((a, b) => b.length - a.length);
+		clusters.forEach((c, i) => { c.hue = (i * 137.5 + 210) % 360; c.idx = i; c.forEach(n => { n.cl = c; }); });
+		const g = { nodes: nodes, edges: edges, clusters: clusters, vb: { x: -400, y: -300, w: 800, h: 600 }, alpha: 1 };
+		for (let i = 0; i < 320; i++) rivalHubStep(g);
+		rivalHubFit(g);
+		return g;
+	}
+	function rivalHubStep(g) {
+		const N = g.nodes, a = g.alpha;
+		for (let i = 0; i < N.length; i++) for (let j = i + 1; j < N.length; j++) {
+			const p = N[i], q = N[j]; let dx = p.x - q.x, dy = p.y - q.y, d2 = dx * dx + dy * dy;
+			if (d2 < 0.01) { dx = Math.random() - 0.5; dy = Math.random() - 0.5; d2 = 0.5; }
+			if (d2 > 160000) continue;
+			const f = 5200 / d2 * a, d = Math.sqrt(d2);
+			p.vx += dx / d * f; p.vy += dy / d * f; q.vx -= dx / d * f; q.vy -= dy / d * f;
+		}
+		g.edges.forEach(e => {
+			const dx = e.nb.x - e.na.x, dy = e.nb.y - e.na.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
+			const rest = e.kind === 'rival' ? 90 : 150, k = (e.kind === 'rival' ? 0.06 : 0.006) * (d - rest) / d;
+			e.na.vx += dx * k; e.na.vy += dy * k; e.nb.vx -= dx * k; e.nb.vy -= dy * k;
+		});
+		N.forEach(n => {
+			n.vx -= n.x * 0.004; n.vy -= n.y * 0.004;      // leichte Schwerkraft zur Mitte
+			if (!n.fixed) { n.x += n.vx; n.y += n.vy; }
+			n.vx *= 0.6; n.vy *= 0.6;
+		});
+		g.alpha = Math.max(0.05, g.alpha * 0.985);
+	}
+	function rivalHubFit(g) {
+		if (!g.nodes.length) return;
+		let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+		g.nodes.forEach(n => { x0 = Math.min(x0, n.x); x1 = Math.max(x1, n.x); y0 = Math.min(y0, n.y); y1 = Math.max(y1, n.y); });
+		const pad = 60, w = Math.max(x1 - x0 + 2 * pad, 200), hh = Math.max(y1 - y0 + 2 * pad, 150);
+		const svg = document.getElementById('rh-svg'), ratio = svg && svg.clientWidth ? svg.clientHeight / svg.clientWidth : 0.75;
+		let W = w, H = w * ratio; if (H < hh) { H = hh; W = hh / ratio; }
+		g.vb = { x: (x0 + x1) / 2 - W / 2, y: (y0 + y1) / 2 - H / 2, w: W, h: H };
+	}
+	const rhR = n => 15 + Math.min(14, n.deg * 2.2);
+	const rhColor = (n, l) => 'hsl(' + Math.round(n.cl.hue) + ',70%,' + (l || 58) + '%)';
+
+	function renderRivalHubGraph() {
+		const h = rivalHub, view = document.getElementById('rh-view');
+		const hasRivals = rivalHubEdges().length > 0;
+		if (!hasRivals && !h.showSugg) h.showSugg = true;
+		view.innerHTML = '<div class="rh-bar"><label><input type="checkbox" id="rh-sg" ' + (h.showSugg ? 'checked' : '') + ' onchange="rivalHub.showSugg=this.checked; rivalHub.graph=null; renderRivalHubGraph();"> Beste Vorschläge als gestrichelte Linien (40)</label>' +
+			'<span>Bild ziehen = verschieben · Hintergrund ziehen = Ansicht · Zoom: Mausrad/＋－ · Tippen: Details</span></div>' +
+			'<div class="rh-graphwrap"><svg id="rh-svg" xmlns="http://www.w3.org/2000/svg"></svg>' +
+			'<div class="rh-zoom"><button onclick="rivalHubZoom(0.8)">＋</button><button onclick="rivalHubZoom(1.25)">－</button><button onclick="rivalHubRefit()" title="Alles zeigen">⤢</button></div><div class="rh-tip" id="rh-tip" style="display:none;"></div></div>' +
+			'<div class="rh-clusters" id="rh-clusters"></div>';
+		if (!h.graph) h.graph = rivalHubBuildGraph();
+		if (!h.graph.nodes.length) {
+			document.querySelector('.rh-graphwrap').innerHTML = '<div class="rh-empty">Noch keine Verbindungen.<br><small>Bestätige unter „Vorschläge“ ein paar Rivalen – dann entstehen hier Cluster.</small></div>';
+			return;
+		}
+		rivalHubFit(h.graph);
+		drawRivalHubGraph(true);
+		bindRivalHubGraph();
+	}
+
+	function drawRivalHubGraph(full) {
+		const h = rivalHub, g = h.graph, svg = document.getElementById('rh-svg');
+		if (!svg) return;
+		svg.setAttribute('viewBox', g.vb.x + ' ' + g.vb.y + ' ' + g.vb.w + ' ' + g.vb.h);
+		const dim = n => h.focus !== null && n.cl.idx !== h.focus;
+		if (full || !svg.querySelector('.rh-n')) {
+			let s = '<defs>' + g.nodes.map(n => '<clipPath id="rhc' + n.id + '"><circle r="' + rhR(n) + '"/></clipPath>').join('') + '</defs>';
+			s += '<g id="rh-edges">' + g.edges.map((e, i) => '<line data-e="' + i + '" stroke="' + (e.kind === 'rival' ? rhColor(e.na, 60) : '#888') + '" stroke-width="' + (e.kind === 'rival' ? 2.5 : 1.3) + '"' + (e.kind === 'rival' ? '' : ' stroke-dasharray="5 5" opacity="0.45"') + '/>').join('') + '</g>';
+			s += '<g id="rh-nodes">' + g.nodes.map(n => '<g class="rh-n" data-id="' + n.id + '" style="cursor:pointer"><circle r="' + (rhR(n) + 3) + '" fill="' + rhColor(n) + '"/><image href="' + imgUrl(n.img, 'thumb') + '" x="' + (-rhR(n)) + '" y="' + (-rhR(n)) + '" width="' + (2 * rhR(n)) + '" height="' + (2 * rhR(n)) + '" preserveAspectRatio="xMidYMid slice" clip-path="url(#rhc' + n.id + ')"/></g>').join('') + '</g>';
+			svg.innerHTML = s;
+			document.getElementById('rh-clusters').innerHTML = g.clusters.filter(c => c.length > 1).map(c => {
+				const rivalsIn = c.filter(n => g.edges.some(e => e.kind === 'rival' && (e.na === n || e.nb === n))).length;
+				const top = c.slice().sort((a, b) => b.img.elo - a.img.elo).slice(0, 3).map(n => escHtml(n.img.name)).join(', ');
+				const avg = Math.round(c.reduce((s, n) => s + n.img.elo, 0) / c.length);
+				return '<div class="rh-cl' + (h.focus === c.idx ? ' on' : '') + '" onclick="rivalHubFocus(' + c.idx + ')"><b style="background:hsl(' + Math.round(c.hue) + ',70%,58%)"></b>' +
+					'Cluster ' + (c.idx + 1) + ' · ' + c.length + ' Bilder · Ø Elo ' + avg + '<br><span style="color:#888">' + top + '</span></div>';
+			}).join('');
+		}
+		svg.querySelectorAll('line[data-e]').forEach(l => {
+			const e = g.edges[l.dataset.e];
+			l.setAttribute('x1', e.na.x); l.setAttribute('y1', e.na.y); l.setAttribute('x2', e.nb.x); l.setAttribute('y2', e.nb.y);
+			l.style.opacity = h.focus !== null && (dim(e.na) || dim(e.nb)) ? 0.08 : '';
+		});
+		svg.querySelectorAll('.rh-n').forEach(el => {
+			const n = g.nodes.find(x => x.id == el.dataset.id);
+			el.setAttribute('transform', 'translate(' + n.x + ',' + n.y + ')');
+			el.style.opacity = dim(n) ? 0.15 : '';
+		});
+	}
+	function rivalHubFocus(i) { const h = rivalHub; h.focus = h.focus === i ? null : i; renderRivalHubGraph(); }
+	function rivalHubZoom(f, cx, cy) {
+		const vb = rivalHub.graph.vb; cx = cx === undefined ? vb.x + vb.w / 2 : cx; cy = cy === undefined ? vb.y + vb.h / 2 : cy;
+		vb.x = cx - (cx - vb.x) * f; vb.y = cy - (cy - vb.y) * f; vb.w *= f; vb.h *= f; drawRivalHubGraph();
+	}
+	function rivalHubRefit() { rivalHubFit(rivalHub.graph); drawRivalHubGraph(); }
+
+	function bindRivalHubGraph() {
+		const h = rivalHub, g = h.graph, svg = document.getElementById('rh-svg'), tip = document.getElementById('rh-tip');
+		const toWorld = ev => { const r = svg.getBoundingClientRect(); return { x: g.vb.x + (ev.clientX - r.left) / r.width * g.vb.w, y: g.vb.y + (ev.clientY - r.top) / r.height * g.vb.h }; };
+		let drag = null, moved = false, raf = 0;
+		const kick = () => { if (raf) return; raf = requestAnimationFrame(function tick() {
+			raf = 0; if (rivalHub !== h || h.graph !== g) return;
+			g.alpha = Math.max(g.alpha, 0.3); for (let i = 0; i < 2; i++) rivalHubStep(g); drawRivalHubGraph();
+			if (drag && drag.node) raf = requestAnimationFrame(tick);
+		}); };
+		svg.addEventListener('pointerdown', ev => {
+			const el = ev.target.closest('.rh-n'); moved = false;
+			svg.setPointerCapture(ev.pointerId); svg.classList.add('drag');
+			if (el) { const n = g.nodes.find(x => x.id == el.dataset.id); n.fixed = true; drag = { node: n, id: n.id }; }
+			else drag = { pan: true, sx: ev.clientX, sy: ev.clientY, vx: g.vb.x, vy: g.vb.y };
+		});
+		svg.addEventListener('pointermove', ev => {
+			if (!drag) {
+				const el = ev.target.closest && ev.target.closest('.rh-n');
+				if (el) { const n = g.nodes.find(x => x.id == el.dataset.id); tip.style.display = 'block'; tip.textContent = n.img.name + ' · Elo ' + Math.round(n.img.elo); } else tip.style.display = 'none';
+				return;
+			}
+			moved = true;
+			if (drag.node) { const w = toWorld(ev); drag.node.x = w.x; drag.node.y = w.y; kick(); }
+			else { const r = svg.getBoundingClientRect(); g.vb.x = drag.vx - (ev.clientX - drag.sx) / r.width * g.vb.w; g.vb.y = drag.vy - (ev.clientY - drag.sy) / r.height * g.vb.h; drawRivalHubGraph(); }
+		});
+		const end = () => {
+			svg.classList.remove('drag');
+			if (drag && drag.node) {
+				drag.node.fixed = false;
+				if (!moved) { const id = drag.id; drag = null; showDetailsByID(id); return; }
+			}
+			drag = null;
+		};
+		svg.addEventListener('pointerup', end); svg.addEventListener('pointercancel', end);
+		svg.addEventListener('wheel', ev => { ev.preventDefault(); const w = toWorld(ev); rivalHubZoom(ev.deltaY > 0 ? 1.12 : 0.89, w.x, w.y); }, { passive: false });
+	}
+
 	async function resetDismissedRivals(imgId) {
 		imgId = Number(imgId);
 		const tx = db.transaction("images", "readwrite");
