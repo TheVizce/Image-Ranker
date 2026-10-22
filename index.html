@@ -775,6 +775,32 @@ html[data-theme="arena"] div::-webkit-scrollbar-thumb { background: #3d3a68; }
 .cp-gap b { color: var(--text); }
 html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data-extras="off"] .cp-gap { display: none; }
 
+/* ===== ZOOM, ANIMATION, HINWEISE ===== */
+.zoom-btn { position: absolute; top: 8px; right: 8px; z-index: 20; width: 34px; height: 34px; padding: 0; border-radius: 50%; border: 1px solid rgba(255,255,255,0.25); background: rgba(0,0,0,0.55); color: #fff; cursor: zoom-in; font-size: 1em; opacity: 0; transition: opacity .15s; }
+.image-container:hover .zoom-btn, .zoom-btn:focus-visible { opacity: 1; }
+#lightbox { position: fixed; inset: 0; z-index: 3000; background: rgba(0,0,0,0.93); display: none; flex-direction: column; align-items: center; justify-content: center; gap: 10px; cursor: zoom-out; padding: 16px; }
+#lightbox img { max-width: 96vw; max-height: 88vh; object-fit: contain; border-radius: 10px; box-shadow: 0 20px 60px rgba(0,0,0,0.7); }
+#lightbox .lb-cap { color: #ddd; font-weight: bold; }
+#busy-note { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 4000; background: var(--card, #222); color: #eee; border: 1px solid var(--line, #444); border-radius: 12px; padding: 8px 16px; display: none; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+@keyframes duel-in { from { opacity: 0.2; transform: scale(0.97); } to { opacity: 1; transform: none; } }
+.image-container.duel-in { animation: duel-in .22s ease-out; }
+@media (prefers-reduced-motion: reduce) { .image-container.duel-in { animation: none; } }
+/* ===== RANGLISTE: Spalten, Kacheln, Mehrfachauswahl ===== */
+.modal.list-mode .modal-content { box-sizing: border-box; max-width: 1500px; width: calc(100vw - 36px); }
+#rank-table.tiles thead { display: none; }
+#rank-table.tiles tbody { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-top: 12px; }
+#rank-table.tiles tr { display: flex !important; flex-direction: column; align-items: center; gap: 4px; position: relative; padding: 8px 8px 10px; border: 1px solid var(--line, #2a2a2a) !important; border-radius: 14px; background: var(--surface, rgba(255,255,255,0.03)); }
+#rank-table.tiles tr[data-shide="1"], #rank-table.tiles tr[data-fhide="1"] { display: none !important; }
+#rank-table.tiles td { display: none; border: 0 !important; padding: 0 !important; }
+#rank-table.tiles td.c-img, #rank-table.tiles td.c-name, #rank-table.tiles td.c-elo, #rank-table.tiles td.c-rank, #rank-table.tiles td.c-sel { display: block; }
+#rank-table.tiles td.c-img { width: 100%; }
+#rank-table.tiles td.c-img img { width: 100% !important; height: auto !important; aspect-ratio: 3 / 4; border-radius: 10px !important; }
+#rank-table.tiles td.c-name { text-align: center; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#rank-table.tiles td.c-rank { position: absolute; top: 12px; left: 12px; background: rgba(0,0,0,0.65); padding: 1px 7px !important; border-radius: 8px; font-size: 0.85em; }
+#rank-table.tiles td.c-sel { position: absolute; top: 12px; right: 12px; background: rgba(0,0,0,0.65); padding: 3px 4px !important; border-radius: 8px; line-height: 0; }
+#rank-table tr.bulk-sel { background: rgba(80,140,255,0.14); }
+#bulk-bar { position: sticky; top: -20px; z-index: 6; margin: 10px 0; padding: 10px 12px; background: var(--card, #1b1b1b); border: 1px solid var(--accent, #3b82f6); border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+#bulk-bar select, #bulk-bar input[type=text], #bulk-bar input[type=number] { background: var(--surface-2, #1a1a1a); color: #eee; border: 1px solid var(--line, #444); border-radius: 6px; padding: 5px 8px; }
 /* ===== DETAIL-FENSTER (breit, 3 Spalten) ===== */
 .modal.details-mode { padding: 18px; }
 .modal.details-mode .modal-content { box-sizing: border-box; max-width: 1900px; width: calc(100vw - 36px); padding: 20px 26px 24px; }
@@ -876,6 +902,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
     <button class="nav-btn" onclick="openTagStats()">🏷️ Tag-Statistik</button>
     <button class="secondary" id="undo-btn" onclick="undoLastMatch()" disabled>↩️ Rückgängig</button>
     <div style="flex:1"></div>
+    <button class="secondary" id="backup-chip" onclick="exportFullSystem()" title="Backup jetzt exportieren">💾 –</button>
     <button class="secondary" onclick="openSettings()">⚙️ Einstellungen</button>
     <input type="file" id="backup-input" style="display:none" accept=".json" onchange="importFullSystem(this.files[0])">
     <div id="counter" style="color: var(--accent); font-weight: bold; border: 1px solid var(--accent); padding: 4px 10px; border-radius: 4px;">-</div>
@@ -896,6 +923,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			
 			<!-- LINKES BILD -->
 			<div id="img-left" class="image-container" onclick="submitVote('left')">
+				<button class="zoom-btn" onclick="event.stopPropagation(); openLightbox('left')" title="Bild groß ansehen">🔍</button>
 				<div class="img-display" id="display-left"></div>
 				<div class="glass-footer">
 					<div id="name-left" style="font-weight:bold; color: white; margin-bottom: 4px;">-</div>
@@ -928,6 +956,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	
 			<!-- RECHTES BILD -->
 			<div id="img-right" class="image-container" onclick="submitVote('right')">
+				<button class="zoom-btn" onclick="event.stopPropagation(); openLightbox('right')" title="Bild groß ansehen">🔍</button>
 				<div class="img-display" id="display-right"></div>
 				<div class="glass-footer">
 					<div id="name-right" style="font-weight:bold; color: white; margin-weight: bold; margin-bottom: 4px;">-</div>
@@ -974,6 +1003,9 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		shareRival: 0.15,         // STANDARD: Anteil Rivalen (hat das Bild keine, geht der Anteil an die Elo-Nachbarn)
 		tagOrder: {},             // Reihenfolge der Eigenschaften pro Tab: { "<Tab>": ["Name", ...] } (fehlt der Tab = Anlegereihenfolge)
 		imageFit: {},             // Bilddarstellung pro Tab: { "<Tab>": "contain" } = ganzes Bild zeigen, z. B. bei quadratischen Bildern (fehlt der Tab = Zuschnitt)
+		tabAccent: {},            // Akzentfarbe pro Tab: { "<Tab>": "#rrggbb" } (fehlt der Tab = Standardfarbe des Designs)
+		uncertainBelow: 10,       // Einträge mit weniger Duellen gelten als „noch unsicher“ (0 = nie)
+		newbieBoost: false,       // true: Duelle, an denen ein unsicherer Eintrag beteiligt ist, zählen mit K=48 statt 32
 		dailyGoals: {},           // Tagesziel pro Tab: { "<Tab>": Anzahl } (fehlt der Tab = automatisch berechnet)
 		tagWeights: {}            // Rivalen-Vorschläge: { "<Tab>": { "<Tag>": Gewicht } } (leer = Standardgewicht, 0 = ignorieren)
 	};
@@ -1007,10 +1039,13 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			eloWindow: Math.round(num(r.eloWindow, 10, 2000, d.eloWindow)),
 			shareOutside: num(r.shareOutside, 0, 1, d.shareOutside),
 			shareRival: num(r.shareRival, 0, 1, d.shareRival),
+			uncertainBelow: Math.round(num(r.uncertainBelow, 0, 500, d.uncertainBelow)),
+			newbieBoost: r.newbieBoost === undefined ? !!d.newbieBoost : (r.newbieBoost === true || r.newbieBoost === 'true'),
 			tagWeights: {},
 			dailyGoals: {},
 			tagOrder: {},
-			imageFit: {}
+			imageFit: {},
+			tabAccent: {}
 		};
 		const to = (r.tagOrder && typeof r.tagOrder === 'object') ? r.tagOrder : d.tagOrder;
 		Object.keys(to || {}).forEach(tab => {
@@ -1021,6 +1056,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		});
 		const fit = (r.imageFit && typeof r.imageFit === 'object') ? r.imageFit : d.imageFit;
 		Object.keys(fit || {}).forEach(tab => { if (fit[tab] === 'contain') out.imageFit[tab] = 'contain'; });
+		const ta = (r.tabAccent && typeof r.tabAccent === 'object') ? r.tabAccent : d.tabAccent;
+		Object.keys(ta || {}).forEach(tab => { if (/^#[0-9a-fA-F]{6}$/.test(String(ta[tab]))) out.tabAccent[tab] = String(ta[tab]).toLowerCase(); });
 		const dg = (r.dailyGoals && typeof r.dailyGoals === 'object') ? r.dailyGoals : d.dailyGoals;
 		Object.keys(dg || {}).forEach(tab => {
 			const n = Math.round(Number(dg[tab]));
@@ -1117,6 +1154,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	}
 
     async function refreshUI() {
+        applyTabAccent();
         updateUndoButton();
         renderTabs();
         await updateRanking();
@@ -1614,7 +1652,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		const undoEntry = { tab: currentTab, L: duelFields(curL), R: duelFields(curR), focusBefore: { id: focusId, count: focusCount }, matchId: undefined, logEl: null };
 	
 		// Elo-Berechnung: scoreL ist jetzt nur noch 1 (Sieg) oder 0 (Niederlage)
-		const k = 32;
+		const gamesMin = Math.min(curL.wins + curL.losses, curR.wins + curR.losses);
+		const k = (settings.newbieBoost && gamesMin < settings.uncertainBelow) ? 48 : 32;
 		const expL = 1 / (1 + Math.pow(10, (curR.elo - curL.elo) / 400));
 		const scoreL = result === 'left' ? 1 : 0; 
 		const delta = k * (scoreL - expL);
@@ -1708,6 +1747,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		// Daten laden
 		if (!id) return; // Abbrechen, wenn keine ID da ist
 		const currentId = Number(id);
+		currentDetailId = currentId;
 		const img = await new Promise(r => db.transaction("images").objectStore("images").get(id).onsuccess = e => r(e.target.result));
 		const allImgs = await new Promise(r => db.transaction("images").objectStore("images").getAll().onsuccess = e => r(e.target.result));
 		const matchIdx = await getMatchIndex();
@@ -1951,13 +1991,20 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 
         let html = '<div class="dt-wrap">';
         // Header
-        html += '<div style="display:flex; justify-content: space-between; align-items: center; margin-bottom:15px; padding-right:10px; border-bottom:1px solid #222; padding-bottom:10px;">';
-        html += '   <h2 style="margin:0; display:flex; align-items:center; gap:8px; flex-wrap:wrap; max-width:70%;">';
+        html += '<div style="display:flex; justify-content: space-between; align-items: center; gap:14px; flex-wrap:wrap; margin-bottom:15px; padding-right:44px; border-bottom:1px solid var(--line, #222); padding-bottom:10px;">';
+        html += '   <h2 style="margin:0; display:flex; align-items:center; gap:8px; flex-wrap:wrap; max-width:60%;">';
         html += '     <span style="color:#888; font-size:0.8em;">#' + currentRank + '</span> ' + img.name;
         html += '     ' + focusButton;
         html += '     ' + peakBadge;
         html += '   </h2>';
         html += '   <div style="font-weight:bold; white-space:nowrap; font-size:0.9em;">' + detailBadges + '</div>';
+        html += '   <div class="dt-nav" style="display:flex; gap:6px; align-items:center; margin-left:auto;">' +
+            '<button class="secondary" onclick="detailNav(-1)" title="Vorheriger Eintrag (←)" style="padding:4px 12px;">‹</button>' +
+            '<select id="dt-skip" onchange="detailNavSkip = this.value" title="Welche Einträge beim Blättern angesprungen werden" style="max-width:200px;">' +
+                '<option value="">Alle Einträge</option>' +
+                tagDefs.map(d => '<option value="' + escHtml(d.tagName) + '"' + (detailNavSkip === d.tagName ? ' selected' : '') + '>Nur ohne „' + escHtml(d.tagName) + '“</option>').join('') +
+            '</select>' +
+            '<button class="secondary" onclick="detailNav(1)" title="Nächster Eintrag (→)" style="padding:4px 12px;">›</button></div>';
         html += '</div>';
 
         html += '<div class="dt-grid">';
@@ -2062,6 +2109,10 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
         html += '<div style="max-width:100%; overflow:hidden;"><div style="font-size:0.75em; color:#888; font-weight:bold; text-transform:uppercase; letter-spacing:1px; margin-bottom:5px;">Elo-Verlauf (letzte 100)</div>';
         html += '<div class="graph-container" style="margin-top:0; margin-bottom:25px;">' + graph + '</div></div>';
 
+        // Rang-Verlauf (wird nach dem Anzeigen berechnet)
+        html += '<div style="max-width:100%; overflow:hidden;"><div style="font-size:0.75em; color:#888; font-weight:bold; text-transform:uppercase; letter-spacing:1px; margin-bottom:5px;">Rang-Verlauf</div>';
+        html += '<div id="dt-rank-history" style="background:var(--surface, #111); border:1px solid var(--line, #222); border-radius:12px; padding:8px; color:#666; font-size:0.85em;">Wird berechnet…</div></div>';
+
         // Matchup Tabelle
         html += '<div style="font-size:0.75em; color:#888; font-weight:bold; text-transform:uppercase; letter-spacing:1px; margin-top:20px; margin-bottom:5px;">ALLE MATCHUPS (' + sortedOpponents.length + ' VERSCHIEDENE GEGNER)</div>';
         html += '<div style="max-height: 260px; overflow-y: auto; border: 1px solid #222; border-radius: 8px; background:#111;">';
@@ -2076,6 +2127,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
         html += '</div></div></div>';
         showModal(html);
         document.getElementById('modal').classList.add('details-mode');
+        fillRankHistory(img);
     }
 	
 	async function openStats() {
@@ -2360,6 +2412,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
             '</div>' +
         '</div>';
 	
+		html += buildStatsInsights(list, allTabMatches);
+
 		html += '<div style="display:grid; grid-template-columns:1fr; gap:10px; margin-bottom:20px;">';
 		html += renderStatCard("Wenigste Matches", leastMatchesImg, minMatches + " Matches Insgesamt");
 		html += renderStatCard("Geringste Abdeckung", lowestCoverageImg, Math.round(minCovRate * 100) + "% aller Gegner gesehen");
@@ -2415,6 +2469,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
         }
         
         d.classList.toggle('fit-contain', isFitContain(img.tab || currentTab));
+        if (container) { container.classList.remove('duel-in'); void container.offsetWidth; container.classList.add('duel-in'); }
 
         d.style.backgroundImage = `url("${url}")`;
         d.style.backgroundPositionY = (img.y || 50) + "%";
@@ -2575,23 +2630,38 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		const currentMin = list.length > 0 ? list[list.length - 1].elo : 800;
 		// 2. Tabellen-Kopf
 		let html = `<h2>Rangliste (${currentTab})</h2>`;
-		html += '<input type="text" id="search-box" placeholder="Suchen..." oninput="filterRankTable(this.value)">';
+		const rv = getRankView();
+		const visCols = new Set(rv.cols || RANK_DEFAULT_COLS);
+		const tagDefsForList = await getTagDefinitionsForTab(currentTab);
+		html += '<div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">';
+		html += '<input type="text" id="search-box" placeholder="Suchen..." oninput="filterRankTable(this.value)" style="flex:1; min-width:160px;">';
+		html += '<button class="secondary" id="rank-view-btn" onclick="toggleRankTiles()" title="Zwischen Tabelle und Kacheln wechseln">' + (rv.tiles ? '☰ Tabelle' : '▦ Kacheln') + '</button>';
+		html += '<details id="rank-cols-box" style="position:relative;"><summary class="secondary" style="list-style:none; cursor:pointer; padding:6px 12px; border:1px solid var(--line, #444); border-radius:8px; color:#ccc;">Spalten ▾</summary>' +
+			'<div style="position:absolute; right:0; z-index:9; background:var(--card, #1b1b1b); border:1px solid var(--line, #333); border-radius:10px; padding:10px 12px; min-width:170px; box-shadow:0 10px 30px rgba(0,0,0,0.5);">' +
+			RANK_COLS.map(c => '<label style="display:flex; gap:8px; align-items:center; padding:2px 0; cursor:pointer;"><input type="checkbox" ' + (visCols.has(c.key) ? 'checked ' : '') + 'onchange="setRankCol(\'' + c.key + '\', this.checked)"> ' + c.label + '</label>').join('') +
+			(tagDefsForList.length ? '<div style="border-top:1px solid var(--line, #333); margin:6px 0 4px; padding-top:6px; color:#888; font-size:0.8em;">Eigenschaften</div>' : '') +
+			tagDefsForList.map(d => '<label style="display:flex; gap:8px; align-items:center; padding:2px 0; cursor:pointer;"><input type="checkbox" ' + (visCols.has('tag:' + d.tagName) ? 'checked ' : '') + 'onchange="setRankCol(\'tag:' + escHtml(d.tagName).replace(/\\/g, '\\\\').replace(/'/g, "\\'") + '\', this.checked)"> ' + escHtml(d.tagName) + '</label>').join('') +
+			'</div></details>';
+		html += '</div>';
+		html += '<div id="bulk-bar" style="display:none;"></div>';
 		html += '<details id="list-filter-box" ' + (listFilterOpen ? 'open' : '') + ' ontoggle="listFilterOpen = this.open" style="margin:10px 0;">' +
 			'<summary style="cursor:pointer; color:#aaa;">🔎 Nach Eigenschaften filtern <span id="list-filter-count" style="color:var(--accent); font-weight:bold; margin-left:8px;"></span></summary>' +
 			'<div id="flt-list-mount" style="margin-top:10px;"></div></details>';
-		html += '<table id="rank-table" class="leaderboard-table">';
+		html += '<table id="rank-table" class="leaderboard-table' + (rv.tiles ? ' tiles' : '') + '">';
 		html += `<thead><tr>
-					<th style="width: 40px;">#</th>
-					<th style="width: 50px;">Bild</th>
-					<th>Name</th>
-					<th style="width: 50px;">Tier</th>
-					<th style="width: 70px;">Elo</th>
-					<th style="width: 70px;">Winrate</th>
-					<th style="width: 50px;">M</th>
-					<th style="width: 55px;" title="Anteil der Gegner im Tab, gegen die das Bild schon gespielt hat">Cov</th>
-					<th style="width: 110px;">Form</th>
-					<th style="width: 40px;">🎯</th>
-				</tr></thead><tbody>`;
+					<th class="c-sel" style="width: 30px;"><input type="checkbox" title="Alle sichtbaren auswählen" onchange="bulkSelectAll(this.checked)"></th>
+					<th class="c-rank" style="width: 40px;">#</th>
+					<th class="c-img" style="width: 50px;">Bild</th>
+					<th class="c-name">Name</th>
+					<th class="c-tier" style="width: 50px;">Tier</th>
+					<th class="c-elo" style="width: 70px;">Elo</th>
+					<th class="c-win" style="width: 70px;">Winrate</th>
+					<th class="c-m" style="width: 50px;">M</th>
+					<th class="c-cov" style="width: 55px;" title="Anteil der Gegner im Tab, gegen die das Bild schon gespielt hat">Cov</th>
+					<th class="c-form" style="width: 110px;">Form</th>
+					<th class="c-focus" style="width: 40px;">🎯</th>` +
+					tagDefsForList.map((d, di) => '<th class="ct' + di + '">' + escHtml(d.tagName) + '</th>').join('') +
+				`</tr></thead><tbody>`;
 	
 		// 3. Zeilen generieren
 		const covIds = new Set(list.map(i => Number(i.id)));
@@ -2632,6 +2702,10 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 				badges += ' <span title="Personal Best" style="color:#f1c40f; cursor:help;">⭐</span>';
 			}
 	
+			if (settings.uncertainBelow > 0 && totalMatches < settings.uncertainBelow) {
+				badges += ' <span title="Noch unsicher: erst ' + Math.floor(totalMatches) + ' Duelle" style="color:#888; cursor:help;">?</span>';
+			}
+
 			// Siegesserie
 			if (img.streak >= 3) {
 				badges += ` <span title="${img.streak} Siege in Folge! 🔥" style="color:#f39c12; cursor:help;">🔥</span>`;
@@ -2647,20 +2721,21 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			
 			html += `
 				<tr data-id="${img.id}" style="border-bottom: 1px solid #222;">
-					<td style="${rankStyle}"><b>#${rank}</b><span class="frank" style="color:#777; font-size:0.75em; font-weight:normal; margin-left:4px;"></span></td>
-					<td style="text-align:center;">
+					<td class="c-sel"><input type="checkbox" class="bulk-cb" onchange="bulkToggle(${img.id}, this.checked)"></td>
+					<td class="c-rank" style="${rankStyle}"><b>#${rank}</b><span class="frank" style="color:#777; font-size:0.75em; font-weight:normal; margin-left:4px;"></span></td>
+					<td class="c-img" style="text-align:center;">
 						<img src="${url}" loading="lazy" decoding="async" onclick="showDetailsByID(${img.id})" style="width:36px;height:46px;object-fit:cover;border-radius:4px;border:1px solid #333;cursor:pointer;" title="Details öffnen">
 					</td>
-					<td>
+					<td class="c-name">
 						<span style="font-weight:bold; color:#ddd;">${img.name}</span>${badges}
 					</td>
-					<td style="font-weight:bold; color:${rating.color}; text-align:center;">${rating.tierLabel}</td>
-					<td style="font-family:monospace; font-weight:bold; color:var(--accent);">${Math.round(img.elo)}</td>
-					<td style="font-weight:bold; color:${winColor}">${winRate}%</td>
-					<td style="color:#aaa; font-family:monospace;">${Math.floor(totalMatches)}</td>
-					<td style="color:${covPct >= 100 ? 'var(--win)' : '#aaa'}; font-family:monospace;">${covPct}%</td>
-					<td><div class="form-dot-container">${formDots}</div></td>
-					<td style="text-align:center;">
+					<td class="c-tier" style="font-weight:bold; color:${rating.color}; text-align:center;">${rating.tierLabel}</td>
+					<td class="c-elo" style="font-family:monospace; font-weight:bold; color:var(--accent);">${Math.round(img.elo)}</td>
+					<td class="c-win" style="font-weight:bold; color:${winColor}">${winRate}%</td>
+					<td class="c-m" style="color:#aaa; font-family:monospace;">${Math.floor(totalMatches)}</td>
+					<td class="c-cov" style="color:${covPct >= 100 ? 'var(--win)' : '#aaa'}; font-family:monospace;">${covPct}%</td>
+					<td class="c-form"><div class="form-dot-container">${formDots}</div></td>
+					<td class="c-focus" style="text-align:center;">
 						<button onclick="setFocus(${img.id})" 
 								title="${isFocused ? 'Fokus aufheben' : 'Marathon-Modus starten'}" 
 								style="background:none; border:none; cursor:pointer; font-size:1.1em; padding:5px; 
@@ -2668,12 +2743,16 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 									filter: ${isFocused ? 'grayscale(0) drop-shadow(0 0 5px #e74c3c)' : 'grayscale(1) opacity(0.3)'};">
 							🎯
 						</button>
-					</td>
-				</tr>`;
+					</td>` +
+					tagDefsForList.map((d, di) => '<td class="ct' + di + '" data-tag="' + escHtml(d.tagName) + '" style="color:#bbb; font-size:0.9em;">' + escHtml(getTagValues(img, d).join(', ')) + '</td>').join('') +
+				`</tr>`;
 		});
 	
 		html += '</tbody></table>';
 		showModal(html);
+		document.getElementById('modal').classList.add('list-mode');
+		rankTagDefs = tagDefsForList; bulkSel = new Set();
+		applyRankCols();
 		renderFilterEditor('list');
 		applyListFilter();
 	}
@@ -2728,6 +2807,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
         a.href = URL.createObjectURL(new Blob([JSON.stringify(backupObject)], { type: "application/json" }));
         a.download = `ranker_backup.json`; 
         a.click();
+        setLastBackupAt(backupObject.exportedAt);
+        updateBackupChip();
     }
 
 	function importFullSystem(file) {
@@ -2828,6 +2909,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
                 }
                 
                 tx.oncomplete = () => {
+                    setLastBackupAt(Number(data.exportedAt) || Date.now());
                     alert("Import erfolgreich! Alle IDs und Verknüpfungen wurden exakt wiederhergestellt.");
                     location.reload();
                 };
@@ -2849,7 +2931,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
         const cont = document.getElementById('tab-list'); cont.innerHTML = '';
         tabs.forEach(t => {
             const div = document.createElement('div'); div.className = 'tab-container';
-            div.innerHTML = `<div class="tab ${t === currentTab ? 'active' : ''}" onclick="switchTab('${t}')">${t}</div>`;
+            const acc = settings.tabAccent && settings.tabAccent[t];
+            div.innerHTML = `<div class="tab ${t === currentTab ? 'active' : ''}" onclick="switchTab('${t}')"${acc ? ' style="box-shadow: inset 0 -3px 0 ' + acc + ';"' : ''}>${t}</div>`;
             if(t !== "Standard") div.innerHTML += `<div class="tab-delete" onclick="deleteTab('${t}')">&times;</div>`;
             cont.appendChild(div);
         });
@@ -2878,11 +2961,6 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
             tabs = tabs.filter(x => x !== t); localStorage.setItem('tabs', JSON.stringify(tabs)); switchTab("Standard");
         };
     }
-    async function importImages(files) {
-        const tx = db.transaction("images", "readwrite");
-        for (let f of files) tx.objectStore("images").add({ tab: currentTab, name: f.name.split('.')[0], blob: f, elo: 1200, wins: 0, losses: 0, history: [1200], peak: 1200, y: 50 });
-        tx.oncomplete = () => { refreshUI(); ensureThumbs(); };
-    }
     async function deleteImage(id) {
         if(!confirm("Löschen?")) return;
         const tx = db.transaction(["images", "matches", "thumbs"], "readwrite");
@@ -2908,6 +2986,39 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
         const n = (undoStacks[currentTab] || []).length;
         btn.disabled = n === 0;
         btn.textContent = n > 1 ? `↩️ Rückgängig (${n})` : '↩️ Rückgängig';
+        updateBackupChip();
+    }
+
+    // ===================== BACKUP-HINWEIS & DATENPFLEGE =====================
+    // Pro Gerät: Zeitpunkt des letzten Exports/Imports. Zeigt, wie lange das her ist und wie viele Duelle seitdem dazukamen.
+    const BACKUP_WARN_DAYS = 7, BACKUP_WARN_MATCHES = 300;
+    function getLastBackupAt() { try { return Number(localStorage.getItem('lastBackupAt')) || 0; } catch (e) { return 0; } }
+    function setLastBackupAt(t) { try { localStorage.setItem('lastBackupAt', String(t)); } catch (e) {} }
+    function agoText(t) {
+        const min = Math.floor((Date.now() - t) / 60000);
+        if (min < 1) return 'gerade eben';
+        if (min < 60) return 'vor ' + min + ' Min';
+        const h = Math.floor(min / 60);
+        if (h < 24) return 'vor ' + h + ' Std';
+        const d = Math.floor(h / 24);
+        return 'vor ' + d + (d === 1 ? ' Tag' : ' Tagen');
+    }
+    async function updateBackupChip() {
+        const el = document.getElementById('backup-chip');
+        if (!el || !db) return;
+        const last = getLastBackupAt();
+        let fresh = 0;
+        try { fresh = (await getMatches()).filter(m => (Number(m.time) || 0) > last).length; } catch (e) {}
+        let txt, warn;
+        if (!last) { txt = '💾 Noch kein Backup'; warn = fresh > 0; }
+        else {
+            txt = '💾 ' + agoText(last) + (fresh ? ' · +' + fresh + ' Duelle' : '');
+            warn = (Date.now() - last) > BACKUP_WARN_DAYS * 86400000 || fresh >= BACKUP_WARN_MATCHES;
+        }
+        el.textContent = txt;
+        el.style.borderColor = warn ? 'var(--accent-r, #f39c12)' : '';
+        el.style.color = warn ? 'var(--accent-r, #f39c12)' : '';
+        el.title = 'Backup jetzt exportieren' + (last ? ' (letztes: ' + new Date(last).toLocaleString('de-DE') + ')' : '');
     }
 
     // Nur die durch ein Duell veränderten Felder merken
@@ -2962,7 +3073,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
         tx.oncomplete = () => { mine.forEach(i => forgetImage(i.id)); invalidateMatchCache(); delete undoStacks[currentTab]; closeModal(); refreshUI(); };
     }
     function showModal(content) {
-        document.getElementById('modal').classList.remove('studio-mode', 'details-mode');
+        document.getElementById('modal').classList.remove('studio-mode', 'details-mode', 'list-mode');
         document.getElementById('modal-body').innerHTML = content;
         document.getElementById('modal').style.display = 'block';
     }
@@ -3021,7 +3132,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
     function filterRankTable(val) {
         const rows = document.querySelectorAll("#rank-table tbody tr");
         rows.forEach(row => {
-            row.dataset.shide = row.cells[2].innerText.toLowerCase().includes(val.toLowerCase()) ? '' : '1';
+            row.dataset.shide = (row.querySelector('.c-name') || row.cells[2]).innerText.toLowerCase().includes(val.toLowerCase()) ? '' : '1';
             row.style.display = (row.dataset.fhide || row.dataset.shide) ? 'none' : '';
         });
     }
@@ -3383,6 +3494,26 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		h += '<div style="' + hint + '">Leer = automatisch (aktuell <b>' + autoGoal + '</b>, berechnet aus der Bilderzahl dieses Tabs). Gilt für Fortschrittsanzeige und Statistik.</div>';
 		h += '</div>';
 
+		// --- Ranking-Genauigkeit ---
+		h += '<div style="' + box + '">';
+		h += '<h3 style="' + title + '">Ranking-Genauigkeit</h3>';
+		h += '<div style="' + row + '"><label for="set-uncertainBelow">„Noch unsicher“ unter … Duellen</label>' +
+			'<input id="set-uncertainBelow" type="number" min="0" max="500" step="1" value="' + settings.uncertainBelow + '" onchange="updateSetting(\'uncertainBelow\', this.value)" style="' + inp + ' width:90px;"></div>';
+		h += '<div style="' + row + ' margin-bottom:0;"><label for="set-newbieBoost">Neulinge schneller einstufen (K=48 statt 32)</label>' +
+			'<input id="set-newbieBoost" type="checkbox" ' + (settings.newbieBoost ? 'checked' : '') + ' onchange="updateSetting(\'newbieBoost\', this.checked)"></div>';
+		h += '<div style="' + hint + '">Unsichere Einträge sind in der Rangliste mit „?“ markiert. Mit dem Schalter bewegen sich Einträge mit wenig Duellen stärker, bis sie sich eingependelt haben. Gilt nur für neue Duelle.</div>';
+		h += '</div>';
+
+		// --- Akzentfarbe ---
+		const accNow = (settings.tabAccent && settings.tabAccent[currentTab]) || '';
+		h += '<div style="' + box + '">';
+		h += '<h3 style="' + title + '">Akzentfarbe (Tab „' + escHtml(currentTab) + '“)</h3>';
+		h += '<div style="' + row + ' margin-bottom:0;"><label for="set-tabAccent">Farbe für diesen Tab</label>' +
+			'<span style="display:flex; gap:8px; align-items:center;"><input id="set-tabAccent" type="color" value="' + (accNow || '#7b96ff') + '" onchange="setTabAccent(this.value)" style="width:46px; height:30px; padding:0; border:1px solid #333; background:none;">' +
+			'<button class="secondary" onclick="setTabAccent(null)">Standard</button></span></div>';
+		h += '<div style="' + hint + '">Färbt die Hauptakzente (aktiver Tab, Hervorhebungen) ein, damit du sofort siehst, in welchem Tab du bist.</div>';
+		h += '</div>';
+
 		// --- Bilddarstellung ---
 		h += '<div style="' + box + '">';
 		h += '<h3 style="' + title + '">Bilddarstellung (Tab „' + escHtml(currentTab) + '“)</h3>';
@@ -3477,6 +3608,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		h += '<div style="display:flex; flex-wrap:wrap; gap:8px;">' +
 			'<button class="secondary" onclick="exportFullSystem()">📤 Export</button>' +
 			'<button class="secondary" onclick="document.getElementById(\'backup-input\').click()">📥 Import</button>' +
+			'<button class="secondary" onclick="openMaintenance()">🧹 Daten prüfen</button>' +
 			'<button class="danger" onclick="clearTab()">🗑️ Tab „' + escHtml(currentTab) + '“ leeren</button>' +
 		'</div>';
 		h += '<div style="' + hint + '">Export und Import enthalten Bilder, Duelle, Eigenschaften und diese Einstellungen.</div>';
@@ -3485,6 +3617,454 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		h += '<div style="text-align:right;"><button class="secondary" onclick="resetSettings()">Einstellungen auf Standard zurücksetzen</button></div>';
 		h += '</div>';
 		showModal(h);
+	}
+
+
+	// ===================== RANGLISTE: ANSICHT & MEHRFACHAUSWAHL =====================
+	const RANK_COLS = [
+		{ key: 'tier', label: 'Tier', cls: 'c-tier' }, { key: 'elo', label: 'Elo', cls: 'c-elo' },
+		{ key: 'win', label: 'Winrate', cls: 'c-win' }, { key: 'm', label: 'Matches', cls: 'c-m' },
+		{ key: 'cov', label: 'Coverage', cls: 'c-cov' }, { key: 'form', label: 'Form', cls: 'c-form' },
+		{ key: 'focus', label: 'Fokus 🎯', cls: 'c-focus' }
+	];
+	const RANK_DEFAULT_COLS = RANK_COLS.map(c => c.key);
+	let rankTagDefs = [], bulkSel = new Set();
+	function getRankView() {
+		try { const o = JSON.parse(localStorage.getItem('rankView')); if (o && typeof o === 'object') return o; } catch (e) {}
+		return {};
+	}
+	function saveRankView(o) { try { localStorage.setItem('rankView', JSON.stringify(o)); } catch (e) {} }
+	function applyRankCols() {
+		const rv = getRankView(), vis = new Set(rv.cols || RANK_DEFAULT_COLS);
+		let css = '';
+		RANK_COLS.forEach(c => { if (!vis.has(c.key)) css += '#rank-table .' + c.cls + '{display:none !important;}'; });
+		rankTagDefs.forEach((d, i) => { if (!vis.has('tag:' + d.tagName)) css += '#rank-table .ct' + i + '{display:none !important;}'; });
+		let st = document.getElementById('rank-cols-style');
+		if (!st) { st = document.createElement('style'); st.id = 'rank-cols-style'; document.head.appendChild(st); }
+		st.textContent = css;
+	}
+	function setRankCol(key, on) {
+		const rv = getRankView(), vis = new Set(rv.cols || RANK_DEFAULT_COLS);
+		if (on) vis.add(key); else vis.delete(key);
+		rv.cols = [...vis]; saveRankView(rv); applyRankCols();
+	}
+	function toggleRankTiles() {
+		const rv = getRankView(); rv.tiles = !rv.tiles; saveRankView(rv);
+		document.getElementById('rank-table').classList.toggle('tiles', !!rv.tiles);
+		document.getElementById('rank-view-btn').textContent = rv.tiles ? '☰ Tabelle' : '▦ Kacheln';
+	}
+	function bulkRowVisible(row) { return !row.dataset.fhide && !row.dataset.shide; }
+	function bulkToggle(id, on) {
+		id = Number(id);
+		if (on) bulkSel.add(id); else bulkSel.delete(id);
+		const row = document.querySelector('#rank-table tr[data-id="' + id + '"]');
+		if (row) row.classList.toggle('bulk-sel', on);
+		renderBulkBar();
+	}
+	function bulkSelectAll(on) {
+		document.querySelectorAll('#rank-table tbody tr').forEach(row => {
+			if (on && !bulkRowVisible(row)) return;
+			const id = Number(row.dataset.id), cb = row.querySelector('.bulk-cb');
+			if (cb) cb.checked = on;
+			if (on) bulkSel.add(id); else bulkSel.delete(id);
+			row.classList.toggle('bulk-sel', on);
+		});
+		renderBulkBar();
+	}
+	function bulkClear() {
+		bulkSel = new Set();
+		document.querySelectorAll('#rank-table .bulk-cb').forEach(cb => { cb.checked = false; });
+		document.querySelectorAll('#rank-table tr.bulk-sel').forEach(r => r.classList.remove('bulk-sel'));
+		const all = document.querySelector('#rank-table th.c-sel input'); if (all) all.checked = false;
+		renderBulkBar();
+	}
+	function renderBulkBar() {
+		const bar = document.getElementById('bulk-bar');
+		if (!bar) return;
+		if (bulkSel.size === 0) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
+		const keep = bar.dataset.tag;
+		bar.style.display = 'block';
+		let h = '<div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;"><b>' + bulkSel.size + ' ausgewählt</b>';
+		if (rankTagDefs.length === 0) {
+			h += '<span style="color:#888;">Keine Eigenschaften in diesem Tab.</span>';
+		} else {
+			h += '<select id="bulk-tag" onchange="bulkTagChanged()">' + rankTagDefs.map((d, i) => '<option value="' + i + '"' + (String(i) === keep ? ' selected' : '') + '>' + escHtml(d.tagName) + '</option>').join('') + '</select>';
+			h += '<span id="bulk-val-mount"></span>';
+			h += '<button onclick="bulkApply(false)">Setzen</button>';
+			h += '<button class="secondary" onclick="bulkApply(true)" title="Wert der Eigenschaft bei allen Ausgewählten entfernen">Leeren</button>';
+		}
+		h += '<button class="secondary" style="margin-left:auto;" onclick="bulkClear()">Auswahl aufheben</button></div>';
+		bar.innerHTML = h;
+		if (rankTagDefs.length) bulkTagChanged();
+	}
+	function bulkTagChanged() {
+		const sel = document.getElementById('bulk-tag'), mount = document.getElementById('bulk-val-mount');
+		if (!sel || !mount) return;
+		const def = rankTagDefs[Number(sel.value)];
+		document.getElementById('bulk-bar').dataset.tag = sel.value;
+		if (tagTypeOf(def) === 'number') {
+			mount.innerHTML = '<input id="bulk-val" type="number" step="any" placeholder="Zahl" style="width:110px;">';
+		} else {
+			const opts = Array.isArray(def.options) ? def.options : [];
+			mount.innerHTML = '<select id="bulk-val"><option value="">– Wert wählen –</option>' + opts.map(o => '<option value="' + escHtml(o) + '">' + escHtml(o) + '</option>').join('') + '<option value="__new__">＋ Neuer Wert…</option></select>' +
+				(tagTypeOf(def) === 'multi' ? ' <span style="color:#888; font-size:0.8em;">(wird ergänzt)</span>' : '');
+		}
+	}
+	async function bulkApply(clear) {
+		const sel = document.getElementById('bulk-tag');
+		if (!sel || bulkSel.size === 0) return;
+		const def = rankTagDefs[Number(sel.value)], type = tagTypeOf(def);
+		let value = '';
+		if (!clear) {
+			const el = document.getElementById('bulk-val');
+			value = (el && el.value || '').trim();
+			if (value === '') { alert('Bitte erst einen Wert wählen.'); return; }
+			if (value === '__new__') {
+				value = (prompt('Neuer Wert für „' + def.tagName + '“:') || '').trim();
+				if (!value) return;
+			}
+			if (type === 'number' && !isFinite(parseTagNumber(value))) { alert('Bitte eine gültige Zahl eingeben.'); return; }
+		} else if (!confirm('Wert „' + def.tagName + '“ bei ' + bulkSel.size + ' Einträgen entfernen?')) return;
+		// Prompt/Confirm liegen vor der Transaktion (in einer offenen IndexedDB-Transaktion nicht erlaubt)
+		const tx = db.transaction(["images", "tagDefinitions"], "readwrite");
+		const imgStore = tx.objectStore("images");
+		const defNow = await idbGet(tx.objectStore("tagDefinitions"), def.id);
+		if (!defNow) return;
+		if (!clear && type !== 'number') {
+			const opts = Array.isArray(defNow.options) ? defNow.options : [];
+			if (!opts.some(o => tagKey(o) === tagKey(value))) { defNow.options = opts.concat(value).sort(tagSort); tx.objectStore("tagDefinitions").put(defNow); }
+			else value = opts.find(o => tagKey(o) === tagKey(value));
+		}
+		const ids = [...bulkSel];
+		const imgs = [];
+		for (const id of ids) { const im = await idbGet(imgStore, id); if (im) imgs.push(im); }
+		imgs.forEach(im => {
+			let arr;
+			if (clear) arr = [];
+			else if (type === 'multi') arr = getTagValues(im, defNow).concat(value);
+			else arr = [value];
+			setTagValues(im, defNow, arr);
+			imgStore.put(im);
+		});
+		await txDone(tx);
+		rankTagDefs = rankTagDefs.map(d => d.id === defNow.id ? defNow : d);
+		const di = rankTagDefs.findIndex(d => d.id === defNow.id);
+		imgs.forEach(im => {
+			const cell = document.querySelector('#rank-table tr[data-id="' + im.id + '"] td.ct' + di);
+			if (cell) cell.textContent = getTagValues(im, defNow).join(', ');
+		});
+		bulkTagChanged();
+		const bb = document.getElementById('bulk-bar'); if (bb) { bb.style.borderColor = 'var(--win, #2ecc71)'; setTimeout(() => { bb.style.borderColor = ''; }, 800); }
+	}
+
+
+	// ===================== DETAIL-FENSTER: BLÄTTERN & RANG-VERLAUF =====================
+	let currentDetailId = null, detailNavSkip = '';
+	async function detailNav(dir) {
+		if (!currentDetailId) return;
+		const all = await idbGetAll(db.transaction("images").objectStore("images"));
+		const cur = all.find(i => i.id === currentDetailId);
+		if (!cur) return;
+		const list = all.filter(i => i.tab === cur.tab).sort((a, b) => b.elo - a.elo);
+		const idx = list.findIndex(i => i.id === cur.id), n = list.length;
+		for (let step = 1; step < n; step++) {
+			const c = list[(((idx + dir * step) % n) + n) % n];
+			if (detailNavSkip) {
+				const t = c.tags && c.tags[detailNavSkip];
+				const has = t && ((Array.isArray(t.values) && t.values.length) || String(t.value || '').trim() !== '');
+				if (has) continue;
+			}
+			await showDetailsByID(c.id);
+			return;
+		}
+		const sel = document.getElementById('dt-skip');
+		if (sel) { sel.style.borderColor = 'var(--accent-r, #f39c12)'; setTimeout(() => { sel.style.borderColor = ''; }, 900); }
+	}
+	document.addEventListener('keydown', e => {
+		const m = document.getElementById('modal');
+		if (!m || m.style.display === 'none' || !m.classList.contains('details-mode')) return;
+		if (e.altKey || e.ctrlKey || e.metaKey) return;
+		const t = e.target;
+		if (t && (/^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName) || t.isContentEditable)) return;
+		if (document.getElementById('tag-values-overlay') && getComputedStyle(document.getElementById('tag-values-overlay')).display !== 'none') return;
+		if (e.key === 'ArrowLeft') { e.preventDefault(); detailNav(-1); }
+		else if (e.key === 'ArrowRight') { e.preventDefault(); detailNav(1); }
+	});
+
+	// Rang des Eintrags nach jedem seiner Duelle: Alle Duelle des Tabs werden der Reihe nach nachgerechnet (Start 1200, Gewinner +Δ, Verlierer −Δ)
+	async function fillRankHistory(img) {
+		const box = document.getElementById('dt-rank-history');
+		if (!box) return;
+		const [all, matches] = [await idbGetAll(db.transaction("images").objectStore("images")), await getMatches()];
+		if (currentDetailId !== img.id) return;
+		const ids = all.filter(i => i.tab === img.tab).map(i => i.id);
+		const elo = new Map(ids.map(i => [i, 1200]));
+		const ms = matches.filter(m => m.tab === img.tab && elo.has(m.leftId) && elo.has(m.rightId)).sort((a, b) => (Number(a.time) || 0) - (Number(b.time) || 0) || (a.id || 0) - (b.id || 0));
+		const pts = [];
+		ms.forEach(m => {
+			const d = Math.abs(Number(m.delta) || 0), w = m.winnerId === 'left' ? m.leftId : m.rightId, l = m.winnerId === 'left' ? m.rightId : m.leftId;
+			elo.set(w, elo.get(w) + d); elo.set(l, elo.get(l) - d);
+			if (m.leftId === img.id || m.rightId === img.id) {
+				const mine = elo.get(img.id); let rank = 1;
+				elo.forEach((v, k) => { if (k !== img.id && v > mine) rank++; });
+				pts.push(rank);
+			}
+		});
+		if (pts.length < 2) { box.textContent = 'Noch zu wenige Duelle für einen Verlauf.'; return; }
+		const N = ids.length, W = 600, H = 150, pad = 26;
+		let series = pts;
+		if (series.length > 160) { const step = series.length / 160; series = Array.from({ length: 160 }, (_, i) => pts[Math.min(pts.length - 1, Math.floor(i * step))]); series[159] = pts[pts.length - 1]; }
+		const lo = Math.min(...series), hi = Math.max(...series), span = Math.max(1, hi - lo);
+		const x = i => pad + (W - pad - 8) * i / (series.length - 1);
+		const y = r => 12 + (H - 24) * (r - lo) / span;  // Rang 1 oben
+		const path = series.map((r, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(r).toFixed(1)).join(' ');
+		const best = Math.min(...pts), now = pts[pts.length - 1];
+		box.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%; height:auto; display:block;">' +
+			'<text x="2" y="16" fill="#888" font-size="11">#' + lo + '</text><text x="2" y="' + (H - 8) + '" fill="#888" font-size="11">#' + hi + '</text>' +
+			'<line x1="' + pad + '" x2="' + (W - 8) + '" y1="12" y2="12" stroke="rgba(128,128,128,0.25)" stroke-dasharray="3 4"/>' +
+			'<line x1="' + pad + '" x2="' + (W - 8) + '" y1="' + (H - 12) + '" y2="' + (H - 12) + '" stroke="rgba(128,128,128,0.25)" stroke-dasharray="3 4"/>' +
+			'<path d="' + path + '" fill="none" stroke="var(--accent, #3b82f6)" stroke-width="2" stroke-linejoin="round"/>' +
+			'<circle cx="' + x(series.length - 1) + '" cy="' + y(series[series.length - 1]) + '" r="4" fill="var(--accent-r, #f1c40f)"/></svg>' +
+			'<div style="display:flex; justify-content:space-between; color:#888; font-size:0.8em; padding:2px 4px 0;"><span>Bester Rang: <b style="color:var(--win, #2ecc71)">#' + best + '</b></span><span>' + pts.length + ' Duelle · aktuell <b>#' + now + '</b> von ' + N + '</span></div>';
+	}
+
+
+	// ===================== STATISTIK: AUF-/ABSTEIGER, INKONSISTENZEN, UNSICHERE =====================
+	// Spielt die Duelle eines Tabs nach (Start 1200, Gewinner +Δ, Verlierer −Δ) und liefert den Elo-Stand zu den gewünschten Zeitpunkten
+	function replayElo(list, matches, cutoff) {
+		const elo = new Map(list.map(i => [i.id, 1200])), seen = new Set(); let atCut = null;
+		const ms = matches.filter(m => elo.has(m.leftId) && elo.has(m.rightId)).sort((a, b) => (Number(a.time) || 0) - (Number(b.time) || 0) || (a.id || 0) - (b.id || 0));
+		ms.forEach(m => {
+			if (atCut === null && (Number(m.time) || 0) >= cutoff) atCut = { elo: new Map(elo), seen: new Set(seen) };
+			const d = Math.abs(Number(m.delta) || 0), w = m.winnerId === 'left' ? m.leftId : m.rightId, l = m.winnerId === 'left' ? m.rightId : m.leftId;
+			elo.set(w, elo.get(w) + d); elo.set(l, elo.get(l) - d); seen.add(m.leftId); seen.add(m.rightId);
+		});
+		if (atCut === null) atCut = { elo: new Map(elo), seen: new Set(seen) };
+		return { now: elo, cut: atCut.elo, cutSeen: atCut.seen };
+	}
+	function findInconsistencies(list, matches) {
+		const names = new Map(list.map(i => [i.id, i.name]));
+		const pair = new Map();
+		matches.forEach(m => {
+			if (!names.has(m.leftId) || !names.has(m.rightId)) return;
+			const a = Math.min(m.leftId, m.rightId), b = Math.max(m.leftId, m.rightId), key = a + '|' + b;
+			const rec = pair.get(key) || { a, b, aw: 0, bw: 0 };
+			const winner = m.winnerId === 'left' ? m.leftId : m.rightId;
+			if (winner === a) rec.aw++; else rec.bw++;
+			pair.set(key, rec);
+		});
+		const beats = new Map(); // x -> Map(y -> Duelle gesamt), wenn x y mehrheitlich schlägt (mind. 2 Duelle)
+		pair.forEach(r => {
+			if (r.aw + r.bw < 2 || r.aw === r.bw) return;
+			const [w, l] = r.aw > r.bw ? [r.a, r.b] : [r.b, r.a];
+			if (!beats.has(w)) beats.set(w, new Map());
+			beats.get(w).set(l, r.aw + r.bw);
+		});
+		const out = [];
+		beats.forEach((bs, A) => bs.forEach((nAB, B) => {
+			const cs = beats.get(B); if (!cs) return;
+			cs.forEach((nBC, C) => {
+				if (C === A || !(A < B && A < C)) return;
+				const ca = beats.get(C); if (ca && ca.has(A)) out.push({ ids: [A, B, C], games: nAB + nBC + ca.get(A) });
+			});
+		}));
+		out.sort((x, y) => y.games - x.games);
+		return { cycles: out.length, top: out.slice(0, 6).map(c => ({ names: c.ids.map(i => names.get(i)), ids: c.ids, games: c.games })) };
+	}
+	function buildStatsInsights(list, matches) {
+		const box = 'background:var(--surface, #1b1b1b); padding:15px; border-radius:16px; border:1px solid var(--line, #2a2a2a); margin-bottom:20px;';
+		const head = t => '<h3 style="font-size:0.85em; margin:0 0 10px 0; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">' + t + '</h3>';
+		const link = (id, name) => '<a href="#" onclick="showDetailsByID(' + id + '); return false;" style="color:inherit; font-weight:bold; text-decoration:none; border-bottom:1px dotted #777;">' + escHtml(name) + '</a>';
+		let h = '';
+		// Auf-/Absteiger (7 Tage)
+		const cutoff = Date.now() - 7 * 86400000;
+		const rep = replayElo(list, matches, cutoff);
+		const rankMap = em => { const arr = [...em.entries()].sort((a, b) => b[1] - a[1]); const m = new Map(); arr.forEach(([id], i) => m.set(id, i + 1)); return m; };
+		const rNow = rankMap(rep.now), rCut = rankMap(rep.cut);
+		const moves = list.filter(i => rep.cutSeen.has(i.id)).map(i => ({ img: i, d: rCut.get(i.id) - rNow.get(i.id), elo: rep.now.get(i.id) - rep.cut.get(i.id) }));
+		const risers = moves.filter(m => m.d > 0).sort((a, b) => b.d - a.d).slice(0, 5);
+		const fallers = moves.filter(m => m.d < 0).sort((a, b) => a.d - b.d).slice(0, 5);
+		const col = (title, arr, up) => '<div><div style="color:' + (up ? 'var(--win, #2ecc71)' : 'var(--loss, #e74c3c)') + '; font-weight:bold; font-size:0.85em; margin-bottom:6px;">' + title + '</div>' +
+			(arr.length ? arr.map(m => '<div style="display:flex; justify-content:space-between; gap:8px; font-size:0.9em; padding:2px 0;"><span>' + link(m.img.id, m.img.name) + '</span><span style="color:' + (up ? 'var(--win, #2ecc71)' : 'var(--loss, #e74c3c)') + '; font-family:monospace;">' + (up ? '▲' : '▼') + Math.abs(m.d) + ' <span style="color:#777;">(' + (m.elo >= 0 ? '+' : '') + Math.round(m.elo) + ')</span></span></div>').join('') : '<div style="color:#666; font-size:0.85em;">Keine Bewegung.</div>') + '</div>';
+		h += '<div style="' + box + '">' + head('Auf- und Absteiger (letzte 7 Tage)') + '<div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">' + col('Aufsteiger', risers, true) + col('Absteiger', fallers, false) + '</div></div>';
+		// Inkonsistenzen
+		const inc = findInconsistencies(list, matches);
+		h += '<div style="' + box + '">' + head('Widersprüche (A schlägt B, B schlägt C, C schlägt A)');
+		if (!inc.cycles) h += '<div style="color:#888; font-size:0.9em;">Keine Dreierkreise gefunden – die Ergebnisse sind stimmig.</div>';
+		else {
+			h += '<div style="color:#888; font-size:0.85em; margin-bottom:6px;">' + inc.cycles + (inc.cycles === 1 ? ' Dreierkreis' : ' Dreierkreise') + ' (nur Paarungen mit mindestens 2 Duellen und klarem Sieger). Die auffälligsten:</div>';
+			inc.top.forEach(c => { h += '<div style="font-size:0.9em; padding:2px 0;">' + c.ids.map((id, k) => link(id, c.names[k])).join(' <span style="color:#777;">›</span> ') + ' <span style="color:#777;">› </span>' + link(c.ids[0], c.names[0]) + ' <span style="color:#666; font-size:0.85em;">(' + c.games + ' Duelle)</span></div>'; });
+		}
+		h += '</div>';
+		// Unsichere
+		if (settings.uncertainBelow > 0) {
+			const unc = list.filter(i => (i.wins + i.losses) < settings.uncertainBelow).sort((a, b) => (a.wins + a.losses) - (b.wins + b.losses));
+			h += '<div style="' + box + '">' + head('Noch unsicher (unter ' + settings.uncertainBelow + ' Duellen)');
+			h += unc.length ? '<div style="color:#888; font-size:0.85em; margin-bottom:6px;">' + unc.length + ' von ' + list.length + ' Einträgen. Mit den wenigsten Duellen:</div><div style="display:flex; flex-wrap:wrap; gap:6px;">' +
+				unc.slice(0, 12).map(i => '<span style="background:var(--surface-2, #222); border:1px solid var(--line, #333); border-radius:12px; padding:2px 10px; font-size:0.85em;">' + link(i.id, i.name) + ' <span style="color:#777;">' + Math.floor(i.wins + i.losses) + '</span></span>').join('') + '</div>'
+				: '<div style="color:#888; font-size:0.9em;">Alle Einträge haben genug Duelle.</div>';
+			h += '</div>';
+		}
+		return h;
+	}
+
+
+	// ===================== TAB-AKZENTFARBE =====================
+	function applyTabAccent() {
+		const c = settings.tabAccent && settings.tabAccent[currentTab];
+		const st = document.documentElement.style;
+		if (c) st.setProperty('--accent', c); else st.removeProperty('--accent');
+	}
+	function setTabAccent(c) {
+		if (c) settings.tabAccent[currentTab] = c; else delete settings.tabAccent[currentTab];
+		saveSettings(); applyTabAccent(); renderTabs();
+	}
+
+	// ===================== ZOOM (LIGHTBOX) =====================
+	function openLightbox(side) {
+		const img = side === 'left' ? curL : curR;
+		if (!img) return;
+		let lb = document.getElementById('lightbox');
+		if (!lb) {
+			lb = document.createElement('div'); lb.id = 'lightbox';
+			lb.onclick = closeLightbox;
+			lb.innerHTML = '<img alt=""><div class="lb-cap"></div>';
+			document.body.appendChild(lb);
+		}
+		lb.querySelector('img').src = imgUrl(img);
+		lb.querySelector('.lb-cap').textContent = img.name + ' · ' + Math.round(img.elo) + ' Elo';
+		lb.style.display = 'flex';
+	}
+	function closeLightbox() { const lb = document.getElementById('lightbox'); if (lb) lb.style.display = 'none'; }
+	document.addEventListener('keydown', e => {
+		const lb = document.getElementById('lightbox');
+		if (!lb || lb.style.display === 'none') return;
+		// Solange das große Bild offen ist, stimmen die Pfeiltasten nicht ab
+		e.stopPropagation(); e.preventDefault();
+		if (e.key === 'Escape' || e.key === ' ' || e.key === 'Enter') closeLightbox();
+	}, true);
+
+	// ===================== DUPLIKAT-ERKENNUNG =====================
+	// dHash: 9x8 Graustufenbild, 64 Bit aus „Pixel heller als rechter Nachbar“; ähnliche Bilder haben wenig unterschiedliche Bits.
+	async function computeImageHash(blob) {
+		try {
+			const bmp = await createImageBitmap(blob);
+			const c = document.createElement('canvas'); c.width = 9; c.height = 8;
+			const ctx = c.getContext('2d', { willReadFrequently: true });
+			ctx.drawImage(bmp, 0, 0, 9, 8); if (bmp.close) bmp.close();
+			const d = ctx.getImageData(0, 0, 9, 8).data;
+			const g = i => d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114;
+			let bits = '';
+			for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) bits += g(y * 9 + x) > g(y * 9 + x + 1) ? '1' : '0';
+			let hex = '';
+			for (let i = 0; i < 64; i += 4) hex += parseInt(bits.slice(i, i + 4), 2).toString(16);
+			return hex;
+		} catch (e) { return null; }
+	}
+	function hashDistance(a, b) {
+		let n = 0;
+		for (let i = 0; i < 16; i++) { let x = parseInt(a[i], 16) ^ parseInt(b[i], 16); while (x) { n += x & 1; x >>= 1; } }
+		return n;
+	}
+	const DUP_MAX_DISTANCE = 4;
+	function showBusy(text) {
+		let el = document.getElementById('busy-note');
+		if (!el) { el = document.createElement('div'); el.id = 'busy-note'; document.body.appendChild(el); }
+		el.textContent = text; el.style.display = text ? 'block' : 'none';
+	}
+	async function importImages(files) {
+		files = [...files];
+		if (!files.length) return;
+		let skip = new Set(), hashes = new Map();
+		try {
+			// vorhandene Bilder ohne Hash nachziehen (einmalig)
+			const existing = await idbGetAll(db.transaction("images").objectStore("images"));
+			const missing = existing.filter(i => !i.hash && i.blob instanceof Blob);
+			let done = 0;
+			for (const im of missing) {
+				showBusy('Duplikat-Prüfung: Bilder vorbereiten… ' + (++done) + '/' + missing.length);
+				im.hash = await computeImageHash(im.blob) || '';
+			}
+			if (missing.length) {
+				const tx = db.transaction("images", "readwrite");
+				missing.forEach(im => { if (im.hash) { const store = tx.objectStore("images"); idbGet(store, im.id).then(cur => { if (cur) { cur.hash = im.hash; store.put(cur); } }); } });
+				await txDone(tx);
+			}
+			const known = existing.filter(i => i.hash || missing.includes(i)).map(i => ({ name: i.name, tab: i.tab, hash: i.hash }));
+			const dups = [];
+			let k = 0;
+			for (const f of files) {
+				showBusy('Duplikat-Prüfung: ' + (++k) + '/' + files.length);
+				const h = await computeImageHash(f); hashes.set(f, h || '');
+				if (!h) continue;
+				const hit = known.find(x => x.hash && hashDistance(x.hash, h) <= DUP_MAX_DISTANCE);
+				if (hit) { dups.push({ f, hit }); skip.add(f); }
+				else known.push({ name: f.name, tab: currentTab, hash: h, fromBatch: true });
+			}
+			showBusy('');
+			if (dups.length) {
+				const lines = dups.slice(0, 8).map(d => '• ' + d.f.name + '  ≈  „' + d.hit.name + '“' + (d.hit.fromBatch ? ' (in dieser Auswahl)' : (d.hit.tab !== currentTab ? ' (Tab ' + d.hit.tab + ')' : ''))).join('\n') + (dups.length > 8 ? '\n… und ' + (dups.length - 8) + ' weitere' : '');
+				const addAnyway = confirm(dups.length + ' von ' + files.length + ' Bildern sehen bereits vorhandenen Bildern ähnlich:\n\n' + lines + '\n\nOK = trotzdem alle hinzufügen\nAbbrechen = Duplikate überspringen');
+				if (addAnyway) skip = new Set();
+			}
+		} catch (e) { console.warn('Duplikat-Prüfung übersprungen:', e); showBusy(''); skip = new Set(); }
+		const toAdd = files.filter(f => !skip.has(f));
+		if (!toAdd.length) { document.getElementById('file-input').value = ''; return; }
+		const tx = db.transaction("images", "readwrite");
+		for (let f of toAdd) tx.objectStore("images").add({ tab: currentTab, name: f.name.split('.')[0], blob: f, elo: 1200, wins: 0, losses: 0, history: [1200], peak: 1200, y: 50, hash: hashes.get(f) || '' });
+		tx.oncomplete = () => { document.getElementById('file-input').value = ''; refreshUI(); ensureThumbs(); };
+	}
+
+	// ===================== DATENPFLEGE =====================
+	// Findet Altlasten: Duelle zu gelöschten Bildern, Vorschaubilder ohne Bild, Rivalen-Verweise ins Leere,
+	// Eigenschaftswerte ohne Eigenschaft. Gelöscht wird erst nach Klick auf „Bereinigen“.
+	async function scanData() {
+		const tx = db.transaction(["images", "matches", "thumbs", "tagDefinitions"], "readonly");
+		const images = await idbGetAll(tx.objectStore("images"));
+		const matches = await idbGetAll(tx.objectStore("matches"));
+		const defs = await idbGetAll(tx.objectStore("tagDefinitions"));
+		const thumbKeys = await new Promise(r => { tx.objectStore("thumbs").getAllKeys().onsuccess = e => r(e.target.result); });
+		const ids = new Set(images.map(i => i.id));
+		const orphanMatches = matches.filter(m => !ids.has(m.leftId) || !ids.has(m.rightId));
+		const orphanThumbs = thumbKeys.filter(k => !ids.has(k));
+		let badRivals = 0, orphanTagValues = 0;
+		const defKey = new Set(defs.map(d => d.tab + '\u0000' + d.tagName));
+		images.forEach(i => {
+			badRivals += (i.rivals || []).filter(r => !ids.has(r.id)).length;
+			Object.keys(i.tags || {}).forEach(n => { if (!defKey.has(i.tab + '\u0000' + n)) orphanTagValues++; });
+		});
+		return { images, matches, orphanMatches, orphanThumbs, badRivals, orphanTagValues };
+	}
+	async function openMaintenance() {
+		const r = await scanData();
+		const row = (label, n) => '<tr><td style="padding:6px 8px;">' + label + '</td><td style="padding:6px 8px; text-align:right; font-weight:bold; color:' + (n ? 'var(--accent-r, #f39c12)' : 'var(--win, #2ecc71)') + ';">' + n + '</td></tr>';
+		let h = '<div style="max-width:560px; margin:0 auto;"><h2 style="margin:0 0 15px 0;">🧹 Daten prüfen</h2>';
+		h += '<div style="color:#888; font-size:0.85em; margin-bottom:12px;">' + r.images.length + ' Bilder, ' + r.matches.length + ' Duelle insgesamt.</div>';
+		h += '<table style="width:100%; border-collapse:collapse; background:var(--surface, #111); border:1px solid var(--line, #222); border-radius:10px;">';
+		h += row('Duelle zu gelöschten Bildern', r.orphanMatches.length);
+		h += row('Überflüssige Vorschaubilder', r.orphanThumbs.length);
+		h += row('Rivalen-Verweise auf gelöschte Bilder', r.badRivals);
+		h += row('Eigenschaftswerte ohne passende Eigenschaft', r.orphanTagValues);
+		h += '</table>';
+		const total = r.orphanMatches.length + r.orphanThumbs.length + r.badRivals;
+		h += '<div style="color:#777; font-size:0.8em; margin:10px 0;">„Bereinigen“ entfernt die ersten drei Punkte. Eigenschaftswerte ohne Eigenschaft bleiben bewusst erhalten (stellen sich wieder her, wenn du die Eigenschaft neu anlegst) und lassen sich in den Einstellungen entfernen.</div>';
+		h += '<div style="display:flex; gap:8px; justify-content:flex-end;"><button class="secondary" onclick="openSettings()">Zurück</button>' +
+			'<button ' + (total ? '' : 'disabled ') + 'onclick="runMaintenance()">Bereinigen</button></div></div>';
+		showModal(h);
+	}
+	async function runMaintenance() {
+		const r = await scanData();
+		const ids = new Set(r.images.map(i => i.id));
+		const tx = db.transaction(["images", "matches", "thumbs"], "readwrite");
+		r.orphanMatches.forEach(m => tx.objectStore("matches").delete(m.id));
+		r.orphanThumbs.forEach(k => tx.objectStore("thumbs").delete(k));
+		r.images.forEach(i => {
+			if ((i.rivals || []).some(x => !ids.has(x.id))) { i.rivals = i.rivals.filter(x => ids.has(x.id)); tx.objectStore("images").put(i); }
+		});
+		await txDone(tx);
+		invalidateMatchCache();
+		await refreshUI();
+		await openMaintenance();
 	}
 
 	// Wert übernehmen, bereinigen, speichern und Eingabefelder auf den gültigen Wert setzen
