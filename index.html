@@ -806,11 +806,23 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 .modal.details-mode .modal-content { box-sizing: border-box; max-width: 1900px; width: calc(100vw - 36px); padding: 20px 26px 24px; }
 .dt-grid { display: grid; grid-template-columns: minmax(230px, 0.75fr) minmax(340px, 1.5fr) minmax(320px, 1.2fr); gap: clamp(14px, 1.8vw, 26px); align-items: start; }
 .dt-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.dt-hchip { display: flex; align-items: center; gap: 10px; background: var(--surface, rgba(255,255,255,0.04)); border: 1px solid var(--line, #222); border-radius: 12px; padding: 5px 12px; }
+.dt-hchip small, .dt-tile small, .dt-label { color: #888; text-transform: uppercase; letter-spacing: 1px; font-weight: bold; font-size: 0.7em; }
+.dt-nav select { background: var(--surface-2, #1a1a1a); color: #eee; border: 1px solid var(--line, #444); border-radius: 6px; padding: 5px 8px; }
+.dt-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.dt-tiles2 { grid-template-columns: repeat(2, 1fr); }
+.dt-tile { background: var(--surface, #161616); border: 1px solid var(--line, #222); border-radius: 12px; padding: 8px 12px; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.dt-tile b { font-size: 1.35em; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dt-tile span { color: #777; font-size: 0.78em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dt-label { margin: 6px 0 2px; }
+.dt-matchups { max-height: min(42vh, 380px); overflow-y: auto; border: 1px solid var(--line, #222); border-radius: 10px; background: var(--surface, #111); }
+.dt-charts { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(14px, 1.8vw, 26px); margin-top: 20px; }
+.dt-charts > div { min-width: 0; }
+@media (max-width: 900px) { .dt-charts { grid-template-columns: 1fr; } }
 .dt-img.fit-contain-img, .st-img.fit-contain-img { object-fit: contain; background: rgba(0,0,0,0.4); }
 .dt-img { width: 100%; height: min(54vh, 520px); object-fit: cover; border: 1px solid var(--line, #333); box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
 .dt-box { padding-top: 5px; border-top: 1px solid var(--line, #222); }
 .dt-work > .dt-box { border-top: 0; padding: 12px; background: var(--surface, #111); border: 1px solid var(--line, #222); border-radius: 14px; }
-.dt-view > div { margin-bottom: 0 !important; }
 @media (max-width: 1150px) {
     .dt-grid { grid-template-columns: minmax(200px, 0.7fr) minmax(300px, 1.5fr); }
     .dt-view { grid-column: 1 / -1; }
@@ -1997,7 +2009,10 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
         html += '     ' + focusButton;
         html += '     ' + peakBadge;
         html += '   </h2>';
-        html += '   <div style="font-weight:bold; white-space:nowrap; font-size:0.9em;">' + detailBadges + '</div>';
+        html += '   <div class="dt-hchip"><small>Form</small><div>' + formBadges + '</div></div>';
+        html += '   <div class="dt-hchip"><div style="background:' + rating.color + '; color:#000; min-width:46px; text-align:center; padding:4px 10px; border-radius:8px; font-size:1.4em; font-weight:900; box-shadow:0 4px 15px ' + rating.color + '44;">' + rating.tierLabel + '</div>' +
+            '<div><small>Performance</small><div style="font-size:1.15em; font-weight:bold;">' + rating.score + '<span style="font-size:0.6em; color:#666; margin-left:3px;">/ 100</span></div></div></div>';
+        if (detailBadges) html += '   <div style="font-weight:bold; white-space:nowrap; font-size:0.9em;">' + detailBadges + '</div>';
         html += '   <div class="dt-nav" style="display:flex; gap:6px; align-items:center; margin-left:auto;">' +
             '<button class="secondary" onclick="detailNav(-1)" title="Vorheriger Eintrag (←)" style="padding:4px 12px;">‹</button>' +
             '<select id="dt-skip" onchange="detailNavSkip = this.value" title="Welche Einträge beim Blättern angesprungen werden" style="max-width:200px;">' +
@@ -2068,63 +2083,42 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 
         html += buildRivalSection(img, tabImages, tagDefs);
         html += '</div>';
-        // --- SPALTE 3: nur ansehen (Stats, Verlauf, Matchups) ---
+        // --- SPALTE 3: nur ansehen (Kennzahlen, Insights, Matchups) ---
         html += '<div class="dt-col dt-view">';
-        // Gemeinsamer Container für Form und Score
-        html += '<div style="display:flex; gap:20px; align-items: flex-start; margin-bottom: 20px; background: var(--surface, rgba(255,255,255,0.03)); padding: 15px; border-radius: 14px; border: 1px solid var(--line, #222);">';
-        html += '   <div style="flex: 1;">';
-        html += '     <small style="color:#888; text-transform:uppercase; font-weight:bold; letter-spacing:1px; display:block; margin-bottom:8px;">Form:</small>';
-        html += '     <div>' + formBadges + '</div>';
-        html += '   </div>';
-        html += '   <div style="flex: 1; display:flex; align-items:center; gap:15px; border-left: 1px solid var(--line, #333); padding-left: 25px;">';
-        html += '     <div style="background:' + rating.color + '; color:#000; min-width: 60px; text-align: center; padding:8px 15px; border-radius:8px; font-size:1.8em; font-weight:900; box-shadow: 0 4px 15px ' + rating.color + '44;">' + rating.tierLabel + '</div>';
-        html += '     <div>';
-        html += '       <div style="font-size:0.75em; color:#888; text-transform:uppercase; letter-spacing:1px;">Performance</div>';
-        html += '       <div style="font-size:1.3em; font-weight:bold; color:#eee;">' + rating.score + '<span style="font-size:0.6em; color:#666; margin-left:3px;">/ 100</span></div>';
-        html += '     </div>';
-        html += '   </div>';
-        html += '</div>';
-
-        // Elo-Daten Box
-        const peakStyle = isAtPeak ? 'color:#f1c40f; font-weight:bold;' : '';
-        html += '<div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:15px; background:var(--surface, #161616); padding:15px; border-radius:14px; border:1px solid var(--line, #222);">';
-        html += '   <div><b>Rang:</b> <span style="color:#f1c40f; font-weight:bold; font-size:1.1em;">#' + currentRank + '</span> <span style="color:#555; font-size:0.85em;">von ' + tabImages.length + '</span></div>';
-        html += '   <div><b>Elo:</b> <span style="color:var(--accent)">' + Math.round(img.elo) + '</span></div>';
-        html += '   <div><b>Winrate:</b> ' + winRate + '%</div>';
-        html += '   <div><b>Peak Elo:</b> <span style="' + peakStyle + '">' + Math.round(img.peak || img.elo) + '</span></div>';
-        html += '   <div><b>Matches Ges.:</b> ' + Math.floor(totalMatches) + '</div>';
-        html += '   <div style="grid-column: span 2; border-top: 1px solid var(--line, #252525); padding-top: 8px; margin-top: 4px;"><b>Abdeckung (Eintrag):</b> ' + entryCoverage + '% <span style="color:#555; font-weight:normal;">(' + uniqueOpponentsCount + ' von ' + maxPossibleOpponents + ' Gegnern)</span></div>';
-        html += '</div>';
-
-        // Insights Box
-        html += '<div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:20px; background:var(--surface, #111); padding:12px 15px; border-radius:14px; border:1px solid var(--line, #222); font-size:0.85em;">';
-        html += '   <div style="grid-column: span 2; color:#888; font-size:0.8em; text-transform:uppercase; font-weight:bold; letter-spacing:1px;">Statistik-Insights</div>';
-        html += '   <div>Gegner-Schnitt: <span style="color:#eee; font-weight:bold;">' + avgOpponentElo + ' Elo</span></div>';
-        html += '   <div>Häufigster Gegner: <span style="color:#eee; font-weight:bold;">' + frequentRival + '</span></div>';
-        html += '   <div>Angstgegner: <span style="color:var(--loss); font-weight:bold;">' + kryptonit + '</span></div>';
-        html += '   <div>Lieblingsgegner: <span style="color:var(--win); font-weight:bold;">' + punktelieferant + '</span></div>';
-        html += '</div>';
-
-        // Elo Verlauf
-        html += '<div style="max-width:100%; overflow:hidden;"><div style="font-size:0.75em; color:#888; font-weight:bold; text-transform:uppercase; letter-spacing:1px; margin-bottom:5px;">Elo-Verlauf (letzte 100)</div>';
-        html += '<div class="graph-container" style="margin-top:0; margin-bottom:25px;">' + graph + '</div></div>';
-
-        // Rang-Verlauf (wird nach dem Anzeigen berechnet)
-        html += '<div style="max-width:100%; overflow:hidden;"><div style="font-size:0.75em; color:#888; font-weight:bold; text-transform:uppercase; letter-spacing:1px; margin-bottom:5px;">Rang-Verlauf</div>';
-        html += '<div id="dt-rank-history" style="background:var(--surface, #111); border:1px solid var(--line, #222); border-radius:12px; padding:8px; color:#666; font-size:0.85em;">Wird berechnet…</div></div>';
+        const peakStyle = isAtPeak ? 'color:#f1c40f;' : '';
+        const tile = (label, value, sub) => '<div class="dt-tile"><small>' + label + '</small><b>' + value + '</b>' + (sub ? '<span>' + sub + '</span>' : '<span>&nbsp;</span>') + '</div>';
+        html += '<div class="dt-tiles">' +
+            tile('Rang', '<span style="color:#f1c40f;">#' + currentRank + '</span>', 'von ' + tabImages.length) +
+            tile('Elo', '<span style="color:var(--accent);">' + Math.round(img.elo) + '</span>', 'Peak <span style="' + peakStyle + '">' + Math.round(img.peak || img.elo) + '</span>') +
+            tile('Winrate', winRate + '%', Math.floor(totalMatches) + ' Matches') +
+            tile('Abdeckung', entryCoverage + '%', uniqueOpponentsCount + ' von ' + maxPossibleOpponents + ' Gegnern') +
+            tile('Gegner-Schnitt', avgOpponentElo, 'Elo') +
+            tile('Häufigster Gegner', '<span style="font-size:0.7em;">' + frequentRival + '</span>', '') +
+        '</div>';
+        html += '<div class="dt-tiles dt-tiles2">' +
+            tile('Angstgegner', '<span style="color:var(--loss); font-size:0.75em;">' + kryptonit + '</span>', '') +
+            tile('Lieblingsgegner', '<span style="color:var(--win); font-size:0.75em;">' + punktelieferant + '</span>', '') +
+        '</div>';
 
         // Matchup Tabelle
-        html += '<div style="font-size:0.75em; color:#888; font-weight:bold; text-transform:uppercase; letter-spacing:1px; margin-top:20px; margin-bottom:5px;">ALLE MATCHUPS (' + sortedOpponents.length + ' VERSCHIEDENE GEGNER)</div>';
-        html += '<div style="max-height: 260px; overflow-y: auto; border: 1px solid #222; border-radius: 8px; background:#111;">';
+        html += '<div class="dt-label">Alle Matchups (' + sortedOpponents.length + ' verschiedene Gegner)</div>';
+        html += '<div class="dt-matchups">';
         html += '<table style="width:100%; border-collapse: collapse;">';
-        html += '<thead style="position: sticky; top:0; background:#1a1a1a; font-size:0.8em; color:#888;">';
+        html += '<thead style="position: sticky; top:0; background:var(--surface-2, #1a1a1a); font-size:0.8em; color:#888;">';
         html += '<tr><th style="padding:8px; text-align:left;">Gegner</th><th style="padding:8px; text-align:left;">Duelle</th><th style="padding:8px; text-align:left;">Win%</th></tr>';
         html += '</thead>';
         html += '<tbody>';
         html += matchupRows || '<tr><td colspan="3" style="padding:15px; text-align:center; color:#666;">Noch keine Matches aufgezeichnet.</td></tr>';
         html += '</tbody></table></div>';
+        html += '</div>';
+        html += '</div>'; // Ende dt-grid
 
-        html += '</div></div></div>';
+        // --- Unten, volle Breite: Verläufe nebeneinander ---
+        html += '<div class="dt-charts">';
+        html += '<div><div class="dt-label">Elo-Verlauf (letzte 100)</div><div class="graph-container" style="margin:0;">' + graph + '</div></div>';
+        html += '<div><div class="dt-label">Rang-Verlauf</div><div id="dt-rank-history" style="background:var(--surface, #111); border:1px solid var(--line, #222); border-radius:12px; padding:8px; color:#666; font-size:0.85em;">Wird berechnet…</div></div>';
+        html += '</div>';
+        html += '</div>';
         showModal(html);
         document.getElementById('modal').classList.add('details-mode');
         fillRankHistory(img);
@@ -3811,7 +3805,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			}
 		});
 		if (pts.length < 2) { box.textContent = 'Noch zu wenige Duelle für einen Verlauf.'; return; }
-		const N = ids.length, W = 600, H = 150, pad = 26;
+		const N = ids.length, W = Math.max(300, Math.round(box.clientWidth - 16)), H = 160, pad = 30;
 		let series = pts;
 		if (series.length > 160) { const step = series.length / 160; series = Array.from({ length: 160 }, (_, i) => pts[Math.min(pts.length - 1, Math.floor(i * step))]); series[159] = pts[pts.length - 1]; }
 		const lo = Math.min(...series), hi = Math.max(...series), span = Math.max(1, hi - lo);
