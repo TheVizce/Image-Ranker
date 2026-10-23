@@ -811,6 +811,12 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 #rank-table th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
 #rank-table th.sortable:hover { color: #fff; }
 #rank-table th.sortable::after { content: attr(data-arrow); color: var(--accent, #3b82f6); }
+#rank-table.editing td[class*="ct"] { white-space: nowrap; }
+.re-sel, .re-in { background: var(--surface-2, #1a1a1a); color: #eee; border: 1px solid var(--line, #444); border-radius: 6px; padding: 3px 4px; font-size: 0.95em; max-width: 150px; }
+.re-in { width: 70px; }
+.re-add { width: 44px; }
+.re-chip { display: inline-block; background: rgba(255,255,255,0.09); border-radius: 8px; padding: 1px 4px 1px 8px; margin: 0 4px 3px 0; }
+.re-chip b { cursor: pointer; margin-left: 5px; color: #ff8d80; }
 #rank-sort-sel { background: var(--surface-2, #1a1a1a); color: #eee; border: 1px solid var(--line, #444); border-radius: 8px; padding: 6px 8px; }
 /* Hinweis „alle Duelle gemacht“ */
 #h2h-count.cov-all { color: #5fd6a0 !important; }
@@ -2796,6 +2802,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		html += '<input type="text" id="search-box" placeholder="Suchen..." oninput="filterRankTable(this.value)" style="flex:1; min-width:160px;">';
 		html += '<select id="rank-sort-sel" onchange="setRankSort(this.value)" title="Sortieren nach"><option value="rank">Sortierung: Rang</option>' + [['name','Name'],['elo','Elo'],['win','Winrate'],['m','Duelle'],['cov','Coverage'],['form','Form (letzte 5)']].map(o => '<option value="' + o[0] + '">' + o[1] + '</option>').join('') + tagDefsForList.map((d, di) => '<option value="tag:' + di + '">' + escHtml(d.tagName) + '</option>').join('') + '</select>';
 		html += '<button class="secondary" id="rank-sort-dir" onclick="toggleRankSortDir()" title="Reihenfolge umkehren">↕</button>';
+		html += '<button class="secondary" id="rank-edit-btn" onclick="toggleRankEdit()" title="Eigenschaften direkt in der Tabelle eintragen (blende dafür die Eigenschaften-Spalten ein)">' + (rankEdit ? '✔ Fertig' : '✏️ Bearbeiten') + '</button>';
 		html += '<button class="secondary" id="rank-view-btn" onclick="toggleRankTiles()" title="Zwischen Tabelle und Kacheln wechseln">' + (rv.tiles ? '☰ Tabelle' : '▦ Kacheln') + '</button>';
 		html += '<details id="rank-cols-box" style="position:relative;"><summary class="secondary" style="list-style:none; cursor:pointer; padding:6px 12px; border:1px solid var(--line, #444); border-radius:8px; color:#ccc;">Spalten ▾</summary>' +
 			'<div style="position:absolute; right:0; z-index:9; background:var(--card, #1b1b1b); border:1px solid var(--line, #333); border-radius:10px; padding:10px 12px; min-width:170px; box-shadow:0 10px 30px rgba(0,0,0,0.5);">' +
@@ -2913,7 +2920,9 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		showModal(html);
 		document.getElementById('modal').classList.add('list-mode');
 		rankTagDefs = tagDefsForList; bulkSel = new Set();
+		rankImgMap = new Map(list.map(i => [i.id, i]));
 		applyRankCols();
+		if (rankEdit) renderRankEdit();
 		applyRankSort();
 		renderFilterEditor('list');
 		applyListFilter();
@@ -3381,6 +3390,81 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		container.appendChild(toast);
 		setTimeout(() => toast.remove(), 800);
 	}
+	// ---- Bearbeitungsmodus der Rangliste: Eigenschaften direkt in der Tabelle eintragen ----
+	let rankEdit = false, rankImgMap = new Map();
+	function toggleRankEdit() {
+		rankEdit = !rankEdit;
+		const btn = document.getElementById('rank-edit-btn'); if (btn) btn.textContent = rankEdit ? '✔ Fertig' : '✏️ Bearbeiten';
+		const tbl = document.getElementById('rank-table'); if (tbl) tbl.classList.toggle('editing', rankEdit);
+		if (rankEdit) {
+			const vis = new Set(getRankView().cols || RANK_DEFAULT_COLS);
+			if (!rankTagDefs.some(d => vis.has('tag:' + d.tagName))) alert('Es sind noch keine Eigenschaften-Spalten sichtbar. Blende sie über „Spalten“ ein, dann kannst du sie hier direkt ausfüllen.');
+			renderRankEdit();
+		} else {
+			rankTagDefs.forEach((d, di) => renderRankTagCol(di));
+		}
+	}
+	function renderRankEdit() {
+		const tbl = document.getElementById('rank-table'); if (tbl) tbl.classList.add('editing');
+		rankTagDefs.forEach((d, di) => renderRankTagCol(di));
+	}
+	function renderRankTagCol(di) {
+		const def = rankTagDefs[di]; if (!def) return;
+		document.querySelectorAll('#rank-table tbody td.ct' + di).forEach(td => {
+			const tr = td.parentElement, img = rankImgMap.get(Number(tr.dataset.id));
+			if (!img) return;
+			const vals = getTagValues(img, def);
+			td.dataset.val = vals.join(', ');
+			td.innerHTML = rankEdit ? rankEditorHtml(img, def, di, vals) : escHtml(vals.join(', '));
+		});
+	}
+	function rankEditorHtml(img, def, di, vals) {
+		const type = tagTypeOf(def), id = img.id;
+		const opts = (Array.isArray(def.options) ? def.options : []).slice();
+		const optHtml = (list, cur) => list.map(o => '<option value="' + escHtml(o) + '"' + (cur !== undefined && tagKey(o) === tagKey(cur) ? ' selected' : '') + '>' + escHtml(o) + '</option>').join('');
+		if (type === 'number') {
+			return '<input class="re-in" type="text" inputmode="decimal" value="' + escHtml(vals[0] === undefined ? '' : vals[0]) + '" onchange="rankEditTag(' + id + ',' + di + ',\'set\',this.value)" onkeydown="if(event.key===\'Enter\')this.blur()">';
+		}
+		if (type === 'multi') {
+			const have = new Set(vals.map(tagKey));
+			return vals.map((v, k) => '<span class="re-chip">' + escHtml(v) + '<b title="Entfernen" onclick="rankEditTag(' + id + ',' + di + ',\'remove\',' + k + ')">×</b></span>').join('') +
+				'<select class="re-sel re-add" onchange="rankEditTag(' + id + ',' + di + ',\'add\',this.value)"><option value="">＋</option>' + optHtml(opts.filter(o => !have.has(tagKey(o)))) + '<option value="__new__">＋ Neu…</option></select>';
+		}
+		if (vals[0] !== undefined && !opts.some(o => tagKey(o) === tagKey(vals[0]))) opts.push(vals[0]);
+		return '<select class="re-sel" onchange="rankEditTag(' + id + ',' + di + ',\'set\',this.value)"><option value="">—</option>' + optHtml(opts, vals[0]) + '<option value="__new__">＋ Neu…</option></select>';
+	}
+	async function rankEditTag(id, di, mode, arg) {
+		const defOld = rankTagDefs[di]; if (!defOld) return;
+		const type = tagTypeOf(defOld);
+		let value = mode === 'remove' ? null : String(arg === undefined ? '' : arg).trim();
+		if (mode === 'add' && value === '') return;
+		if (value === '__new__') {
+			value = (prompt('Neuer Wert für „' + defOld.tagName + '“:') || '').trim();
+			if (!value) { renderRankTagCol(di); return; }
+		}
+		if (type === 'number' && value !== '' && value !== null && !isFinite(parseTagNumber(value))) { alert('Bitte eine gültige Zahl eingeben.'); renderRankTagCol(di); return; }
+		// Prompt/Alert liegen vor der Transaktion (in einer offenen IndexedDB-Transaktion nicht erlaubt)
+		const tx = db.transaction(["images", "tagDefinitions"], "readwrite");
+		const im = await idbGet(tx.objectStore("images"), id);
+		const defNow = await idbGet(tx.objectStore("tagDefinitions"), defOld.id);
+		if (!im || !defNow) return;
+		if (value && type !== 'number') {
+			const opts = Array.isArray(defNow.options) ? defNow.options : [];
+			const hit = opts.find(o => tagKey(o) === tagKey(value));
+			if (hit) value = hit; else { defNow.options = opts.concat(value).sort(tagSort); tx.objectStore("tagDefinitions").put(defNow); }
+		}
+		let arr = getTagValues(im, defNow);
+		if (mode === 'remove') arr = arr.filter((_, k) => k !== Number(arg));
+		else if (mode === 'add') arr = arr.some(v => tagKey(v) === tagKey(value)) ? arr : arr.concat(value);
+		else arr = value ? [value] : [];
+		setTagValues(im, defNow, arr);
+		tx.objectStore("images").put(im);
+		await txDone(tx);
+		rankTagDefs[di] = defNow;
+		rankImgMap.set(id, im);
+		renderRankTagCol(di);        // ganze Spalte, damit neue Werte überall zur Auswahl stehen
+	}
+
 	// ---- Rangliste sortieren (Spaltenkopf anklicken oder Auswahl) ----
 	let rankSort = { key: 'rank', dir: 1 };
 	const RANK_SORT_DEFAULT_DIR = { rank: 1, name: 1, elo: -1, win: -1, m: -1, cov: -1, form: -1 };
@@ -3401,7 +3485,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		if (key === 'cov') return num('c-cov');
 		if (key === 'form') return row.querySelectorAll('.form-dot.w').length;
 		if (key.startsWith('tag:')) {
-			const t = (cell('ct' + key.slice(4)) ? cell('ct' + key.slice(4)).textContent : '').trim();
+			const tc = cell('ct' + key.slice(4)); const t = (tc ? (tc.dataset.val !== undefined ? tc.dataset.val : tc.textContent) : '').trim();
 			if (t === '') return null;
 			const n = parseFloat(t.replace(',', '.'));
 			return /^-?\d+([.,]\d+)?/.test(t) && isFinite(n) ? n : t.toLowerCase();
@@ -4190,8 +4274,10 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		const di = rankTagDefs.findIndex(d => d.id === defNow.id);
 		imgs.forEach(im => {
 			const cell = document.querySelector('#rank-table tr[data-id="' + im.id + '"] td.ct' + di);
-			if (cell) cell.textContent = getTagValues(im, defNow).join(', ');
+			if (rankImgMap.has(im.id)) rankImgMap.set(im.id, im);
+			if (cell && !rankEdit) cell.textContent = getTagValues(im, defNow).join(', ');
 		});
+		if (rankEdit && di >= 0) renderRankTagCol(di);
 		bulkTagChanged();
 		const bb = document.getElementById('bulk-bar'); if (bb) { bb.style.borderColor = 'var(--win, #2ecc71)'; setTimeout(() => { bb.style.borderColor = ''; }, 800); }
 	}
