@@ -1873,7 +1873,14 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			if (!img.history) img.history = [1200];
 			img.history.push(Math.round(img.elo));
 			img.peak = Math.max(img.peak || 1200, img.elo);
-			tx.objectStore('images').put(img);
+			// Frischen Datensatz laden und nur die Duell-Felder übertragen – sonst würden zwischenzeitlich
+			// geänderte Eigenschaften, Rivalen, Namen usw. durch den veralteten Stand des Duells überschrieben
+			const imgStore = tx.objectStore('images');
+			imgStore.get(img.id).onsuccess = e => {
+				const fresh = e.target.result || img;
+				['elo', 'wins', 'losses', 'streak', 'peak', 'history'].forEach(f => { if (img[f] === undefined) delete fresh[f]; else fresh[f] = img[f]; });
+				imgStore.put(fresh);
+			};
 		});
 	
 		// Nach der Elo-Berechnung und Streak-Aktualisierung:
@@ -3338,8 +3345,21 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
         document.getElementById('modal-body').innerHTML = content;
         document.getElementById('modal').style.display = 'block';
     }
+    // Nach Änderungen in Details/Rangliste: die beiden Bilder im aktuellen Duell mit dem Datenbankstand abgleichen
+    async function syncCurrentDuel() {
+        if (!curL || !curR || !db) return;
+        let changed = false;
+        for (const cur of [curL, curR]) {
+            const fresh = await new Promise(r => { const q = db.transaction('images').objectStore('images').get(cur.id); q.onsuccess = () => r(q.result); q.onerror = () => r(null); });
+            if (!fresh) continue;
+            const pick = o => JSON.stringify([o.name, o.tags, o.rivals, o.y]);
+            if (pick(fresh) !== pick(cur)) { cur.name = fresh.name; cur.tags = fresh.tags; cur.rivals = fresh.rivals; cur.y = fresh.y; changed = true; }
+        }
+        if (changed) { displaySide('left', curL); displaySide('right', curR); updateH2HStats(); }
+    }
     function closeModal() {
         document.getElementById('modal').style.display = 'none';
+        syncCurrentDuel();
         // Wurde der Duell-Filter geändert, passt sich das aktuelle Duell beim Schließen an
         if (matchFilterDirty) { matchFilterDirty = false; loadMatchup(); }
     }
