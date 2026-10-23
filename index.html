@@ -808,6 +808,10 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 #rank-table tr.bulk-sel { background: rgba(80,140,255,0.14); }
 #bulk-bar { position: sticky; top: -20px; z-index: 6; margin: 10px 0; padding: 10px 12px; background: var(--card, #1b1b1b); border: 1px solid var(--accent, #3b82f6); border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
 #bulk-bar select, #bulk-bar input[type=text], #bulk-bar input[type=number] { background: var(--surface-2, #1a1a1a); color: #eee; border: 1px solid var(--line, #444); border-radius: 6px; padding: 5px 8px; }
+#rank-table th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+#rank-table th.sortable:hover { color: #fff; }
+#rank-table th.sortable::after { content: attr(data-arrow); color: var(--accent, #3b82f6); }
+#rank-sort-sel { background: var(--surface-2, #1a1a1a); color: #eee; border: 1px solid var(--line, #444); border-radius: 8px; padding: 6px 8px; }
 /* Hinweis „alle Duelle gemacht“ */
 #h2h-count.cov-all { color: #5fd6a0 !important; }
 #cov-done { color: #5fd6a0; font-size: 0.72em; font-weight: bold; margin: 2px 0 4px; text-align: center; }
@@ -2790,6 +2794,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		const tagDefsForList = await getTagDefinitionsForTab(currentTab);
 		html += '<div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">';
 		html += '<input type="text" id="search-box" placeholder="Suchen..." oninput="filterRankTable(this.value)" style="flex:1; min-width:160px;">';
+		html += '<select id="rank-sort-sel" onchange="setRankSort(this.value)" title="Sortieren nach"><option value="rank">Sortierung: Rang</option>' + [['name','Name'],['elo','Elo'],['win','Winrate'],['m','Duelle'],['cov','Coverage'],['form','Form (letzte 5)']].map(o => '<option value="' + o[0] + '">' + o[1] + '</option>').join('') + tagDefsForList.map((d, di) => '<option value="tag:' + di + '">' + escHtml(d.tagName) + '</option>').join('') + '</select>';
+		html += '<button class="secondary" id="rank-sort-dir" onclick="toggleRankSortDir()" title="Reihenfolge umkehren">↕</button>';
 		html += '<button class="secondary" id="rank-view-btn" onclick="toggleRankTiles()" title="Zwischen Tabelle und Kacheln wechseln">' + (rv.tiles ? '☰ Tabelle' : '▦ Kacheln') + '</button>';
 		html += '<details id="rank-cols-box" style="position:relative;"><summary class="secondary" style="list-style:none; cursor:pointer; padding:6px 12px; border:1px solid var(--line, #444); border-radius:8px; color:#ccc;">Spalten ▾</summary>' +
 			'<div style="position:absolute; right:0; z-index:9; background:var(--card, #1b1b1b); border:1px solid var(--line, #333); border-radius:10px; padding:10px 12px; min-width:170px; box-shadow:0 10px 30px rgba(0,0,0,0.5);">' +
@@ -2805,17 +2811,17 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		html += '<table id="rank-table" class="leaderboard-table' + (rv.tiles ? ' tiles' : '') + '">';
 		html += `<thead><tr>
 					<th class="c-sel" style="width: 30px;"><input type="checkbox" title="Alle sichtbaren auswählen" onchange="bulkSelectAll(this.checked)"></th>
-					<th class="c-rank" style="width: 40px;">#</th>
+					<th class="c-rank sortable" data-sort="rank" style="width: 40px;">#</th>
 					<th class="c-img" style="width: 50px;">Bild</th>
-					<th class="c-name">Name</th>
-					<th class="c-tier" style="width: 50px;">Tier</th>
-					<th class="c-elo" style="width: 70px;">Elo</th>
-					<th class="c-win" style="width: 70px;">Winrate</th>
-					<th class="c-m" style="width: 50px;">M</th>
-					<th class="c-cov" style="width: 55px;" title="Anteil der Gegner im Tab, gegen die das Bild schon gespielt hat">Cov</th>
-					<th class="c-form" style="width: 110px;">Form</th>
+					<th class="c-name sortable" data-sort="name">Name</th>
+					<th class="c-tier sortable" data-sort="elo" style="width: 50px;">Tier</th>
+					<th class="c-elo sortable" data-sort="elo" style="width: 70px;">Elo</th>
+					<th class="c-win sortable" data-sort="win" style="width: 70px;">Winrate</th>
+					<th class="c-m sortable" data-sort="m" style="width: 50px;">M</th>
+					<th class="c-cov sortable" data-sort="cov" style="width: 55px;" title="Anteil der Gegner im Tab, gegen die das Bild schon gespielt hat">Cov</th>
+					<th class="c-form sortable" data-sort="form" style="width: 110px;">Form</th>
 					<th class="c-focus" style="width: 40px;">🎯</th>` +
-					tagDefsForList.map((d, di) => '<th class="ct' + di + '">' + escHtml(d.tagName) + '</th>').join('') +
+					tagDefsForList.map((d, di) => '<th class="ct' + di + ' sortable" data-sort="tag:' + di + '">' + escHtml(d.tagName) + '</th>').join('') +
 				`</tr></thead><tbody>`;
 	
 		// 3. Zeilen generieren
@@ -2875,7 +2881,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			
 			
 			html += `
-				<tr data-id="${img.id}" style="border-bottom: 1px solid #222;">
+				<tr data-id="${img.id}" data-rank="${rank}" style="border-bottom: 1px solid #222;">
 					<td class="c-sel"><input type="checkbox" class="bulk-cb" onchange="bulkToggle(${img.id}, this.checked)"></td>
 					<td class="c-rank" style="${rankStyle}"><b>#${rank}</b><span class="frank" style="color:#777; font-size:0.75em; font-weight:normal; margin-left:4px;"></span></td>
 					<td class="c-img" style="text-align:center;">
@@ -2908,6 +2914,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		document.getElementById('modal').classList.add('list-mode');
 		rankTagDefs = tagDefsForList; bulkSel = new Set();
 		applyRankCols();
+		applyRankSort();
 		renderFilterEditor('list');
 		applyListFilter();
 	}
@@ -3374,6 +3381,59 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		container.appendChild(toast);
 		setTimeout(() => toast.remove(), 800);
 	}
+	// ---- Rangliste sortieren (Spaltenkopf anklicken oder Auswahl) ----
+	let rankSort = { key: 'rank', dir: 1 };
+	const RANK_SORT_DEFAULT_DIR = { rank: 1, name: 1, elo: -1, win: -1, m: -1, cov: -1, form: -1 };
+	function setRankSort(key) {
+		if (key === rankSort.key) rankSort.dir = -rankSort.dir;      // gleiche Spalte nochmal: umdrehen
+		else rankSort = { key: key, dir: key.startsWith('tag:') ? 1 : (RANK_SORT_DEFAULT_DIR[key] || 1) };
+		applyRankSort();
+	}
+	function toggleRankSortDir() { rankSort.dir = -rankSort.dir; applyRankSort(); }
+	function rankSortValue(row, key) {
+		const cell = c => row.querySelector('.' + c);
+		const num = c => { const t = (cell(c) ? cell(c).textContent : '').replace(',', '.'); const n = parseFloat(t.replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : null; };
+		if (key === 'rank') return Number(row.dataset.rank);
+		if (key === 'name') return ((cell('c-name') && cell('c-name').firstElementChild ? cell('c-name').firstElementChild.textContent : '') || '').toLowerCase();
+		if (key === 'elo') return num('c-elo');
+		if (key === 'win') return num('c-win');
+		if (key === 'm') return num('c-m');
+		if (key === 'cov') return num('c-cov');
+		if (key === 'form') return row.querySelectorAll('.form-dot.w').length;
+		if (key.startsWith('tag:')) {
+			const t = (cell('ct' + key.slice(4)) ? cell('ct' + key.slice(4)).textContent : '').trim();
+			if (t === '') return null;
+			const n = parseFloat(t.replace(',', '.'));
+			return /^-?\d+([.,]\d+)?/.test(t) && isFinite(n) ? n : t.toLowerCase();
+		}
+		return null;
+	}
+	function applyRankSort() {
+		const tb = document.querySelector('#rank-table tbody');
+		if (!tb) return;
+		const key = rankSort.key, dir = rankSort.dir;
+		const rows = [...tb.rows].map(r => ({ r: r, v: rankSortValue(r, key), rank: Number(r.dataset.rank) }));
+		rows.sort((a, b) => {
+			if (a.v === null && b.v === null) return a.rank - b.rank;
+			if (a.v === null) return 1; if (b.v === null) return -1;                  // Leere immer ans Ende
+			let c = typeof a.v === 'number' && typeof b.v === 'number' ? a.v - b.v : String(a.v).localeCompare(String(b.v), 'de', { numeric: true });
+			return (c * dir) || (a.rank - b.rank);
+		});
+		rows.forEach(x => tb.appendChild(x.r));
+		document.querySelectorAll('#rank-table th.sortable').forEach(th => {
+			const on = th.dataset.sort === key;
+			th.classList.toggle('sorted', on);
+			th.dataset.arrow = on ? (dir > 0 ? ' ▲' : ' ▼') : '';
+		});
+		const sel = document.getElementById('rank-sort-sel'); if (sel) sel.value = key;
+		const db_ = document.getElementById('rank-sort-dir'); if (db_) db_.textContent = dir > 0 ? '↑' : '↓';
+		applyListFilter();
+	}
+	document.addEventListener('click', e => {
+		const th = e.target.closest && e.target.closest('#rank-table th.sortable');
+		if (th) setRankSort(th.dataset.sort);
+	});
+
     function filterRankTable(val) {
         const rows = document.querySelectorAll("#rank-table tbody tr");
         rows.forEach(row => {
