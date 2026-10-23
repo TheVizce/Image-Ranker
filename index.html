@@ -808,6 +808,11 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 #rank-table tr.bulk-sel { background: rgba(80,140,255,0.14); }
 #bulk-bar { position: sticky; top: -20px; z-index: 6; margin: 10px 0; padding: 10px 12px; background: var(--card, #1b1b1b); border: 1px solid var(--accent, #3b82f6); border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
 #bulk-bar select, #bulk-bar input[type=text], #bulk-bar input[type=number] { background: var(--surface-2, #1a1a1a); color: #eee; border: 1px solid var(--line, #444); border-radius: 6px; padding: 5px 8px; }
+/* Hinweis „alle Duelle gemacht“ */
+#h2h-count.cov-all { color: #5fd6a0 !important; }
+#cov-done { color: #5fd6a0; font-size: 0.72em; font-weight: bold; margin: 2px 0 4px; text-align: center; }
+#cov-flash { position: fixed; left: 50%; top: 18px; transform: translate(-50%, -150%); background: #1f8f5f; color: #fff; padding: 10px 18px; border-radius: 14px; z-index: 5000; font-weight: bold; font-size: 0.9em; box-shadow: 0 10px 30px rgba(0,0,0,0.5); transition: transform .35s ease; max-width: 90vw; text-align: center; }
+#cov-flash.show { transform: translate(-50%, 0); }
 /* ===== RIVALEN-ZENTRALE ===== */
 .rh-tabs { display: flex; gap: 8px; margin: 6px 0 14px; flex-wrap: wrap; align-items: center; }
 .rh-tab { background: var(--surface, #1a1a1a); color: #ccc; border: 1px solid var(--line, #333); border-radius: 999px; padding: 7px 16px; cursor: pointer; font-size: 0.9em; }
@@ -1060,6 +1065,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 				
 				<div class="h2h-box" id="h2h-ui">
 					<div id="h2h-count" style="font-weight: bold; color: #aaa;">0 Duelle</div>
+					<div id="cov-done" style="display:none;"></div>
 					<div class="h2h-bar-bg">
 						<div id="h2h-bar-fill" class="h2h-bar-fill" style="width: 50%; background: var(--side-l);"></div>
 					</div>
@@ -1582,6 +1588,27 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		});
 	}
 	
+	// Hinweis in der Mitte, sobald das linke Bild schon gegen alle Gegner im Pool (Filter) gespielt hat
+	let covDoneKey = null;
+	function updateCovDone(repeat, round, opp, poolSize) {
+		const el = document.getElementById('cov-done'), cnt = document.getElementById('h2h-count');
+		if (!el) return;
+		el.style.display = repeat ? 'block' : 'none';
+		if (cnt) cnt.classList.toggle('cov-all', repeat);
+		if (!repeat) { covDoneKey = null; return; }
+		el.textContent = '✅ Alle ' + opp + ' Gegner gespielt · Runde ' + round;
+		const key = (focusCount > 0 && focusId !== null) ? focusId + '|' + poolSize : null;
+		if (key && key !== covDoneKey) {
+			covDoneKey = key;
+			flashNote('🎯 ' + (curL ? curL.name : 'Fokus') + ': alle ' + opp + ' möglichen Duelle sind gemacht – ab jetzt Wiederholungen');
+		}
+	}
+	function flashNote(text) {
+		let el = document.getElementById('cov-flash');
+		if (!el) { el = document.createElement('div'); el.id = 'cov-flash'; document.body.appendChild(el); }
+		el.textContent = text; el.classList.add('show');
+		clearTimeout(flashNote.t); flashNote.t = setTimeout(() => el.classList.remove('show'), 4500);
+	}
 	async function updateH2HStats() {
 		const matchIdx = await getMatchIndex();
 		const rb = document.getElementById('rival-badge');
@@ -1688,6 +1715,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
         // Variablen für diese Runde initialisieren
         curL = null;
         curR = null;
+        let covRepeat = false, covRound = 0, covOpp = 0;
     
         // Nach "Rückgängig": das zuletzt gewertete Duell erneut zeigen
         if (forcedPair) {
@@ -1745,6 +1773,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
             const minCount = Math.min(...Object.keys(groups).map(Number));
             const bestOpponents = groups[minCount];
             curR = bestOpponents[Math.floor(Math.random() * bestOpponents.length)];
+            // minCount >= 1: das linke Bild hat schon gegen JEDEN Gegner im Pool (= Filter) gespielt
+            covRepeat = minCount >= 1; covRound = minCount + 1; covOpp = potR.length;
         } 
         
         // STANDARD (oder COVERAGE nicht möglich): Elo-Nachbarn / Außerhalb / Rivalen
@@ -1757,7 +1787,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
         curR.globalRank = list.findIndex(img => img.id === curR.id) + 1;
     
         // Kontext für die Coverage-Anzeige (bezogen auf alle Bilder des Tabs, nicht auf den Filter)
-        duelCtx = { tab: currentTab, idx: matchIdx, ids: new Set(list.map(i => Number(i.id))), n: list.length };
+        duelCtx = { tab: currentTab, idx: matchIdx, ids: new Set(pool.map(i => Number(i.id))), n: pool.length, filtered: pool !== list };
         updateDailyProgress(list.length);
 
         // 1. NUR die Bilder in den Containern unsichtbar machen (passend zum CSS)
@@ -1769,6 +1799,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
         displaySide('right', curR);
         updateProbDisplay();
         await updateH2HStats();
+        updateCovDone(covRepeat, covRound, covOpp, pool.length);
 
         // 3. Beide Bilder vollständig dekodieren lassen, bevor sie eingeblendet werden (höchstens 800 ms warten)
         const preload = img => { const im = new Image(); im.src = imgUrl(img); return im.decode().catch(() => {}); };
@@ -2605,7 +2636,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
         let covTxt = '';
         if (duelCtx && duelCtx.tab === currentTab && duelCtx.n > 1) {
             const cov = Math.floor((distinctOpponentCount(duelCtx.idx, img.id, duelCtx.ids) / (duelCtx.n - 1)) * 100);
-            covTxt = ` | Cov: <span style="color:white">${cov}%</span>`;
+            covTxt = ` | ${duelCtx.filtered ? 'Cov (Filter)' : 'Cov'}: <span style="color:white">${cov}%</span>`;
         }
         const statsEl = document.getElementById(`stats-${side}`);
         statsEl.innerHTML = 
@@ -3070,7 +3101,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
                 }
 
                 // Sicherheitsabfrage: Backup und aktuelle Daten gegenüberstellen
-                const curImgs = await idbGetAll(db.transaction("images").objectStore("images"));
+                const curImgCount = await new Promise((res, rej) => { const q = db.transaction("images").objectStore("images").count(); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); });
                 const curMatches = await idbGetAll(db.transaction("matches").objectStore("matches"));
                 const lastOf = ms => ms.reduce((m, x) => Math.max(m, Number(x.time) || 0), 0);
                 const fmt = t => t ? new Date(t).toLocaleString('de-DE') : 'unbekannt';
@@ -3079,92 +3110,92 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
                 let msg = "Achtung: Der Import ERSETZT alle aktuellen Daten.\n\n" +
                     "Backup:   " + data.images.length + " Bilder, " + bMatches.length + " Duelle, letztes Duell " + fmt(bLast) +
                     (data.exportedAt ? ", exportiert " + fmt(data.exportedAt) : "") + "\n" +
-                    "Aktuell:  " + curImgs.length + " Bilder, " + curMatches.length + " Duelle, letztes Duell " + fmt(cLast) + "\n\n";
+                    "Aktuell:  " + curImgCount + " Bilder, " + curMatches.length + " Duelle, letztes Duell " + fmt(cLast) + "\n\n";
                 if (cLast > bLast || curMatches.length > bMatches.length) {
                     msg += "⚠️ Das Backup wirkt ÄLTER als die aktuellen Daten – es würden Duelle verloren gehen!\n(Tipp: vorher einen Export machen.)\n\n";
                 }
                 msg += "Wirklich importieren?";
                 if (!confirm(msg)) { document.getElementById('backup-input').value = ''; return; }
 
-                // 1. Bilder vorbereiten und Blobs konvertieren (IDs BEIBEHALTEN!)
-                const preparedImages = [];
-                for(let i = 0; i < data.images.length; i++) {
-                    let imageCopy = JSON.parse(JSON.stringify(data.images[i]));
-                    if(typeof data.images[i].blob === 'string' && data.images[i].blob.startsWith('data:')) {
-                        try {
-                            const res = await fetch(data.images[i].blob); 
-                            imageCopy.blob = await res.blob();
-                        } catch (fErr) {
-                            imageCopy.blob = data.images[i].blob;
-                        }
-                    } else {
-                        imageCopy.blob = data.images[i].blob;
-                    }
-                    
-                    // WICHTIGSTE ÄNDERUNG: Wir behalten die originale ID aus dem Backup!
-                    // Falls aus irgendeinem Grund keine ID da ist, nutzen wir den Index
-                    if (data.images[i].id !== undefined) {
-                        imageCopy.id = data.images[i].id;
-                    }
-                    
-                    preparedImages.push(imageCopy);
-                }
+                // Schreiben in kleinen Häppchen: Eine einzige riesige Transaktion schafft der iPhone-Safari bei großen Backups nicht.
+                // Erst alles leeren, dann Bilder (nach Größe gebündelt), Duelle und Definitionen nacheinander schreiben.
+                const waitTx = tx => new Promise((res, rej) => {
+                    tx.oncomplete = () => res();
+                    tx.onabort = () => rej(tx.error || new Error('Transaktion abgebrochen'));
+                });
+                const toBlob = async im => {
+                    const b = im.blob;
+                    if (typeof b === 'string' && b.startsWith('data:')) { try { return await (await fetch(b)).blob(); } catch (e) { return b; } }
+                    // Frische Kopie statt Ausschnitt der großen Backup-Datei (Safari kann Datei-Ausschnitte oft nicht speichern)
+                    if (b instanceof Blob) return new Blob([await b.arrayBuffer()], { type: b.type });
+                    return b;
+                };
+                const stores = ["images", "matches", "tagDefinitions", "thumbs"];
+                let phase = 'Aufräumen';
+                try {
+                    const clr = db.transaction(stores, "readwrite");
+                    stores.forEach(n => {
+                        if (n === 'tagDefinitions' && !(data.tagDefinitions && Array.isArray(data.tagDefinitions))) return; // ältere Backups lassen vorhandene unberührt
+                        clr.objectStore(n).clear();
+                    });
+                    await waitTx(clr);
 
-                // 2. Transaktion für BEIDE Stores öffnen
-                const tx = db.transaction(["images", "matches", "tagDefinitions", "thumbs"], "readwrite");
-                tx.objectStore("thumbs").clear(); // werden nach dem Neuladen automatisch neu erzeugt
-                
-                // IMAGES SCHREIBEN
-                const imgStore = tx.objectStore("images");
-                imgStore.clear();
-                for(let img of preparedImages) {
-                    // .put() statt .add(), damit die feste ID erzwungen wird
-                    imgStore.put(img);
-                }
-                
-                // MATCHES SCHREIBEN
-                const matchStore = tx.objectStore("matches");
-                matchStore.clear();
-                if (data.matches && Array.isArray(data.matches)) {
-                    for(let match of data.matches) {
-                        let matchCopy = { ...match };
-                        // Auch bei den Matches die originale ID und Verknüpfungen zwingend behalten!
-                        if (match.id !== undefined) {
-                            matchCopy.id = match.id;
+                    phase = 'Bilder';
+                    const imgs = data.images, BATCH_BYTES = 12 * 1024 * 1024, BATCH_COUNT = 25;
+                    for (let i = 0; i < imgs.length;) {
+                        const items = []; let bytes = 0;
+                        while (i < imgs.length && items.length < BATCH_COUNT && (items.length === 0 || bytes < BATCH_BYTES)) {
+                            const src = imgs[i];
+                            const copy = { ...src };   // Blob wird unten ersetzt
+                            copy.blob = await toBlob(src);
+                            if (src.id !== undefined) copy.id = src.id;   // IDs bleiben erhalten
+                            bytes += (copy.blob && copy.blob.size) || 0;
+                            items.push(copy); src.blob = null; i++;
                         }
-                        matchStore.put(matchCopy);
+                        showBusy('Backup wird eingespielt… Bilder ' + i + ' / ' + imgs.length);
+                        const tx = db.transaction("images", "readwrite");
+                        const st = tx.objectStore("images");
+                        items.forEach(it => st.put(it));
+                        await waitTx(tx);
+                        await new Promise(r => setTimeout(r, 0));
                     }
-                }
-                
-                // TAG-DEFINITIONEN SCHREIBEN (nur, wenn das Backup welche enthält – ältere Backups lassen die vorhandenen unberührt)
-                if (data.tagDefinitions && Array.isArray(data.tagDefinitions)) {
-                    const tagStore = tx.objectStore("tagDefinitions");
-                    tagStore.clear();
-                    for (let def of data.tagDefinitions) {
-                        tagStore.put({ ...def });
+
+                    phase = 'Duelle';
+                    const ms = Array.isArray(data.matches) ? data.matches : [];
+                    for (let i = 0; i < ms.length; i += 4000) {
+                        showBusy('Backup wird eingespielt… Duelle ' + Math.min(i + 4000, ms.length) + ' / ' + ms.length);
+                        const tx = db.transaction("matches", "readwrite");
+                        const st = tx.objectStore("matches");
+                        ms.slice(i, i + 4000).forEach(m => st.put({ ...m }));
+                        await waitTx(tx);
                     }
+
+                    if (data.tagDefinitions && Array.isArray(data.tagDefinitions)) {
+                        phase = 'Eigenschaften';
+                        const tx = db.transaction("tagDefinitions", "readwrite");
+                        data.tagDefinitions.forEach(d => tx.objectStore("tagDefinitions").put({ ...d }));
+                        await waitTx(tx);
+                    }
+                } catch (werr) {
+                    showBusy('');
+                    console.error("Datenbank-Fehler beim Import (" + phase + "):", werr);
+                    const nm = (werr && werr.name) ? werr.name : 'Fehler';
+                    throw new Error("Beim Schreiben (" + phase + ") ist ein Fehler aufgetreten (" + nm + (werr && werr.message ? ': ' + werr.message : '') + ").\n\n" +
+                        "Die Daten sind jetzt unvollständig. Bitte die App neu laden und den Import mit derselben Datei erneut starten" +
+                        (nm === 'QuotaExceededError' ? " – der Speicherplatz des Browsers reicht vermutlich nicht (iPhone: Speicher freigeben)." : "."));
                 }
-                
-                // EINSTELLUNGEN wiederherstellen (nur, wenn das Backup welche enthält)
+                showBusy('');
+
+                // EINSTELLUNGEN und Tabs wiederherstellen (nur, wenn das Backup welche enthält)
                 if (data.settings && typeof data.settings === 'object') {
                     localStorage.setItem('settings', JSON.stringify(sanitizeSettings(data.settings)));
                 }
-                
-                // 3. LocalStorage für die Registerkarten/Tabs sichern
                 if (data.tabs) {
                     localStorage.setItem('tabs', JSON.stringify(data.tabs));
                 }
-                
-                tx.oncomplete = () => {
-                    setLastBackupAt(Number(data.exportedAt) || Date.now());
-                    alert("Import erfolgreich! Alle IDs und Verknüpfungen wurden exakt wiederhergestellt.");
-                    location.reload();
-                };
-
-                tx.onerror = (err) => {
-                    console.error("Datenbank-Transaktion fehlgeschlagen:", err);
-                    alert("Fehler beim Schreiben der Daten.");
-                };
+                setLastBackupAt(Number(data.exportedAt) || Date.now());
+                alert("Import erfolgreich! Alle IDs und Verknüpfungen wurden exakt wiederhergestellt.");
+                location.reload();
 
             } catch (err) {
                 console.error("Import-Fehler:", err);
@@ -5194,7 +5225,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			chip(ring + '<div><div class="cp-main">Heute ' + count + ' / ' + goal + '</div><div class="cp-sub">' + (pct >= 1 ? 'Tagesziel erreicht 🎉' : 'noch ' + (goal - count) + ' bis zum Ziel') + '</div></div>') +
 			chip('<div><div class="cp-main">🔥 ' + streak + (streak === 1 ? ' Tag' : ' Tage') + '</div><div class="cp-sub">Ziel in Folge geschafft</div></div>', ' nobadge') +
 			chip('<div><div class="cp-main">Ø ' + avg7 + ' pro Tag</div><div class="cp-sub">letzte 7 Tage</div></div>', ' nobadge') +
-			chip('<div><div class="cp-main">' + covTxt + '</div><div class="cp-sub">Abdeckung · ' + covSub + '</div></div>', ' nobadge') +
+			chip('<div><div class="cp-main">' + covTxt + '</div><div class="cp-sub">Abdeckung' + (duelCtx && duelCtx.filtered && duelCtx.tab === currentTab ? ' (Filter)' : '') + ' · ' + covSub + '</div></div>', ' nobadge') +
 			chip('<div><div class="cp-main">' + total + ' Duelle</div><div class="cp-sub">+' + session + ' in dieser Sitzung</div></div>', ' nobadge') +
 			'</div>';
 
