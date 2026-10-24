@@ -1158,6 +1158,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		focusMatches: 1000,       // Anzahl Duelle, die ein gesetzter Fokus anhält
 		eloWindow: 100,           // STANDARD: "Gleicher Elo-Bereich" = +/- so viele Elo-Punkte
 		shareOutside: 0.25,       // STANDARD: Anteil Zufallsgegner von außerhalb des Elo-Bereichs
+		rivalChainWeight: 1,      // Rivalen-Vorschläge: Zuschlag je gemeinsamem bestätigten Rivalen („Rivale von Rivalen“), 0 = aus
 		shareRival: 0.15,         // STANDARD: Anteil Rivalen (hat das Bild keine, geht der Anteil an die Elo-Nachbarn)
 		tagOrder: {},             // Reihenfolge der Eigenschaften pro Tab: { "<Tab>": ["Name", ...] } (fehlt der Tab = Anlegereihenfolge)
 		imageFit: {},             // Bilddarstellung pro Tab: { "<Tab>": "contain" } = ganzes Bild zeigen, z. B. bei quadratischen Bildern (fehlt der Tab = Zuschnitt)
@@ -1197,6 +1198,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			eloWindow: Math.round(num(r.eloWindow, 10, 2000, d.eloWindow)),
 			shareOutside: num(r.shareOutside, 0, 1, d.shareOutside),
 			shareRival: num(r.shareRival, 0, 1, d.shareRival),
+			rivalChainWeight: num(r.rivalChainWeight, 0, 100, d.rivalChainWeight),
 			uncertainBelow: Math.round(num(r.uncertainBelow, 0, 500, d.uncertainBelow)),
 			newbieBoost: r.newbieBoost === undefined ? !!d.newbieBoost : (r.newbieBoost === true || r.newbieBoost === 'true'),
 			tagWeights: {},
@@ -3983,6 +3985,9 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 				'<b>Zahl (±):</b> freie Zahl (z. B. eine Jahreszahl), ein Abstand bis zur Toleranz zählt als Übereinstimmung.<br>' +
 				'Gewicht: leer = Standard (' + RIVAL_DEFAULT_TAG_WEIGHT + '), 0 = Eigenschaft wird bei den Rivalen-Vorschlägen ignoriert, je höher, desto mehr zählt sie.</div>';
 		}
+		h += '<div style="' + row + ' margin:12px 0 0 0;"><label for="set-rivalChainWeight">„Rivale von Rivalen“: Zuschlag je gemeinsamem Rivalen (0 = aus)</label>' +
+			'<input id="set-rivalChainWeight" type="number" min="0" max="100" step="0.5" value="' + settings.rivalChainWeight + '" onchange="updateSetting(\'rivalChainWeight\', this.value)" style="' + inp + ' width:90px;"></div>';
+		h += '<div style="' + hint + '">Sind A–B und A–C bestätigte Rivalen, steigt der Vorschlag B–C. Zum Vergleich: ein übereinstimmender Eigenschaftswert zählt mit seinem Gewicht (Standard ' + RIVAL_DEFAULT_TAG_WEIGHT + ').</div>';
 		h += '</div>';
 
 		// --- Werte zu nicht mehr vorhandenen Eigenschaften ---
@@ -4033,6 +4038,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		set('set-matchupMode', settings.matchupMode);
 		set('set-focusMatches', settings.focusMatches);
 		set('set-eloWindow', settings.eloWindow);
+		set('set-rivalChainWeight', settings.rivalChainWeight);
 		set('set-shareRival', Math.round(settings.shareRival * 100));
 		set('set-shareOutside', Math.round(settings.shareOutside * 100));
 		const nb = document.getElementById('set-shareNeighbor');
@@ -5784,11 +5790,25 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	function computeRivalSuggestions(img, tabImages, defsByName, limit) {
 		const known = new Set((img.rivals || []).map(r => r.id));
 		const result = [];
+		// „Rivale von Rivalen“: Wer mit mir gemeinsame bestätigte Rivalen hat, bekommt einen Zuschlag
+		const chainW = settings.rivalChainWeight;
+		let byId = null, myConf = null;
+		if (chainW > 0) {
+			byId = new Map(tabImages.map(i => [i.id, i]));
+			myConf = new Set((img.rivals || []).filter(r => r.status === 'confirmed' && byId.has(r.id)).map(r => r.id));
+		}
 
 		tabImages.forEach(other => {
 			if (other.id == img.id || known.has(other.id)) return;
 			let score = 0;
 			const shared = [];
+			if (myConf && myConf.size) {
+				const common = (other.rivals || []).filter(r => r.status === 'confirmed' && myConf.has(r.id)).map(r => byId.get(r.id).name);
+				if (common.length) {
+					score += chainW * common.length;
+					shared.push('🔗 Rivale von ' + common.slice(0, 3).join(', ') + (common.length > 3 ? ' +' + (common.length - 3) : ''));
+				}
+			}
 			defsByName.forEach((def, tagName) => {
 				const weight = getRivalTagWeight(img.tab, tagName);
 				if (!(weight > 0)) return;
