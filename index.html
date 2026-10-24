@@ -854,6 +854,10 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 .rh-cl.on { outline: 2px solid var(--accent, #3b82f6); }
 .rh-cl b { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
 .rh-empty { padding: 30px; text-align: center; color: #888; }
+.rh-lbl { fill: #eee; font-weight: 700; font-size: 17px; paint-order: stroke; stroke: rgba(0,0,0,0.65); stroke-width: 4px; pointer-events: none; }
+.rh-ren { cursor: pointer; opacity: 0.7; margin-left: 4px; }
+.rh-ren:hover { opacity: 1; }
+.rh-bar select { background: var(--surface-2, #1a1a1a); color: #eee; border: 1px solid var(--line, #444); border-radius: 6px; padding: 4px 6px; }
 @media (max-width: 700px) { .rh-list { grid-template-columns: 1fr; } #rh-svg { height: 62vh; } }
 /* ===== DETAIL-FENSTER (breit, 3 Spalten) ===== */
 .modal.details-mode { padding: 18px; }
@@ -5782,6 +5786,42 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		return RIVAL_DEFAULT_TAG_WEIGHT;
 	}
 
+	// Übereinstimmung zweier Bilder über ihre Eigenschaften (gewichtet). Ergebnis: { score, shared[] }
+	function rivalTagMatch(img, other, defsByName) {
+		let score = 0;
+		const shared = [];
+			defsByName.forEach((def, tagName) => {
+			const weight = getRivalTagWeight(img.tab, tagName);
+			if (!(weight > 0)) return;
+			const type = tagTypeOf(def);
+			const mine = getTagValuesAs(img, tagName, type);
+			if (mine.length === 0) return;
+			const theirs = getTagValuesAs(other, tagName, type);
+			if (theirs.length === 0) return;
+
+			if (type === 'number') {
+				const a = parseTagNumber(mine[0]), b = parseTagNumber(theirs[0]);
+				if (isFinite(a) && isFinite(b) && Math.abs(a - b) <= getTagTolerance(def)) {
+					score += weight;
+					shared.push(tagName + ': ' + mine[0] + (a !== b ? ' ≈ ' + theirs[0] : ''));
+				}
+			} else if (type === 'multi') {
+				const theirKeys = new Set(theirs.map(tagKey));
+				const common = mine.filter(v => theirKeys.has(tagKey(v)));
+				if (common.length > 0) {
+					const union = new Set([...mine.map(tagKey), ...theirKeys]).size;
+					score += weight * common.length / union;
+					shared.push(tagName + ': ' + common.join(', '));
+				}
+			} else if (tagKey(mine[0]) === tagKey(theirs[0])) {
+				score += weight;
+				shared.push(tagName + ': ' + mine[0]);
+			}
+		});
+		return { score: score, shared: shared };
+	}
+	function rivalTagChips(a, b, defsByName) { return rivalTagMatch(a, b, defsByName).shared; }
+
 	// Vorschläge: Bilder im selben Tab mit Übereinstimmungen bei den Eigenschaften (gewichtet), ohne bereits bekannte (bestätigt/abgelehnt)
 	//   Exakt:            gleicher Wert -> volles Gewicht
 	//   Mehrfachauswahl:  Anteil gemeinsamer Werte (gemeinsam / insgesamt) * Gewicht
@@ -5809,34 +5849,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 					shared.push('🔗 Rivale von ' + common.slice(0, 3).join(', ') + (common.length > 3 ? ' +' + (common.length - 3) : ''));
 				}
 			}
-			defsByName.forEach((def, tagName) => {
-				const weight = getRivalTagWeight(img.tab, tagName);
-				if (!(weight > 0)) return;
-				const type = tagTypeOf(def);
-				const mine = getTagValuesAs(img, tagName, type);
-				if (mine.length === 0) return;
-				const theirs = getTagValuesAs(other, tagName, type);
-				if (theirs.length === 0) return;
-
-				if (type === 'number') {
-					const a = parseTagNumber(mine[0]), b = parseTagNumber(theirs[0]);
-					if (isFinite(a) && isFinite(b) && Math.abs(a - b) <= getTagTolerance(def)) {
-						score += weight;
-						shared.push(tagName + ': ' + mine[0] + (a !== b ? ' ≈ ' + theirs[0] : ''));
-					}
-				} else if (type === 'multi') {
-					const theirKeys = new Set(theirs.map(tagKey));
-					const common = mine.filter(v => theirKeys.has(tagKey(v)));
-					if (common.length > 0) {
-						const union = new Set([...mine.map(tagKey), ...theirKeys]).size;
-						score += weight * common.length / union;
-						shared.push(tagName + ': ' + common.join(', '));
-					}
-				} else if (tagKey(mine[0]) === tagKey(theirs[0])) {
-					score += weight;
-					shared.push(tagName + ': ' + mine[0]);
-				}
-			});
+			const tm = rivalTagMatch(img, other, defsByName); score += tm.score; shared.push(...tm.shared);
 			if (score > 0) result.push({ img: other, score: score, shared: shared });
 		});
 
@@ -5951,44 +5964,115 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	}
 
 	// Alle abgelehnten Vorschläge dieses Bildes wieder freigeben (beidseitig)
-	// ===== RIVALEN-ZENTRALE (tabübergreifende Vorschläge + Netzwerk-Graph) =====
+	// ===== RIVALEN-ZENTRALE (Vorschläge + Netzwerk-Graph) =====
 	// Zustand lebt nur, solange das Fenster offen ist. Rivalen gibt es nur innerhalb eines Tabs.
+	// Performance: Vorschläge werden erst bei Bedarf und über einen Index gerechnet (statt jedes Paar einzeln),
+	// der Graph zeigt zunächst nur die größten Cluster (Budget) und legt jeden Cluster für sich aus.
 	let rivalHub = null;
-	const RH_PAGE = 60;
+	const RH_PAGE = 60, RH_TOP = 1500, RH_BUDGET = 150;
 
 	async function openRivalHub(view) {
 		const ctx = await loadFilterContext(currentTab);
 		if (ctx.images.length < 2) { alert("Für Rivalen braucht der Tab mindestens zwei Bilder."); return; }
 		rivalHub = { tab: currentTab, images: ctx.images, defsByName: ctx.defsByName, byId: new Map(ctx.images.map(i => [i.id, i])),
-			view: view || (rivalHub && rivalHub.view) || 'list', minScore: 1, query: '', shown: RH_PAGE, sugg: null, showSugg: true, focus: null, graph: null };
-		rivalHubComputeSuggestions();
+			view: view || (rivalHub && rivalHub.view) || 'list', minScore: 1, query: '', shown: RH_PAGE, sugg: null, showSugg: false,
+			only: null, graph: null, clusters: null, minSize: 2, budget: RH_BUDGET };
 		showModal('<div id="rh-root"></div>');
 		document.getElementById('modal').classList.add('list-mode');
 		renderRivalHub();
 	}
 
-	// Alle Paare bewerten (symmetrisch, pro Paar der höhere der beiden Scores)
+	// Bewertung eines Paares über Eigenschaften (identisch zu computeRivalSuggestions) – nur für die Chips der Top-Paare
+	function rivalChainChip(a, b, byId) {
+		const mine = new Set((a.rivals || []).filter(r => r.status === 'confirmed' && byId.has(r.id)).map(r => r.id));
+		const common = (b.rivals || []).filter(r => r.status === 'confirmed' && mine.has(r.id)).map(r => byId.get(r.id).name);
+		return common.length ? { n: common.length, chip: '🔗 Rivale von ' + common.slice(0, 3).join(', ') + (common.length > 3 ? ' +' + (common.length - 3) : '') } : null;
+	}
+
+	// Schnelle Berechnung aller Paar-Werte über einen Index. Ergebnis: die besten RH_TOP Paare.
 	function rivalHubComputeSuggestions() {
-		const h = rivalHub, pairs = new Map();
-		h.images.forEach(a => {
-			computeRivalSuggestions(a, h.images, h.defsByName, 1e9).forEach(s => {
-				const lo = Math.min(a.id, s.img.id), hi = Math.max(a.id, s.img.id), key = lo + '-' + hi;
-				const old = pairs.get(key);
-				if (!old || s.score > old.score) pairs.set(key, { a: h.byId.get(lo), b: h.byId.get(hi), score: s.score, shared: s.shared.map(x => x.split(':')[0] === x ? x : x) });
+		const h = rivalHub, imgs = h.images, N = imgs.length;
+		const score = new Float32Array(N * N);                       // nur Einträge i < j werden benutzt
+		const add = (i, j, v) => { if (i > j) { const t = i; i = j; j = t; } score[i * N + j] += v; };
+		let common = null;
+		h.defsByName.forEach((def, tagName) => {
+			const w = getRivalTagWeight(h.tab, tagName);
+			if (!(w > 0)) return;
+			const type = tagTypeOf(def);
+			if (type === 'number') {
+				const arr = [];
+				imgs.forEach((im, i) => { const v = getTagValuesAs(im, tagName, type); if (v.length) { const n = parseTagNumber(v[0]); if (isFinite(n)) arr.push([n, i]); } });
+				arr.sort((p, q) => p[0] - q[0]);
+				const tol = getTagTolerance(def);
+				for (let a = 0; a < arr.length; a++) for (let b = a + 1; b < arr.length && arr[b][0] - arr[a][0] <= tol; b++) add(arr[a][1], arr[b][1], w);
+				return;
+			}
+			const buckets = new Map(), size = new Uint16Array(N);
+			imgs.forEach((im, i) => {
+				const vals = getTagValuesAs(im, tagName, type);
+				if (!vals.length) return;
+				const keys = type === 'multi' ? [...new Set(vals.map(tagKey))] : [tagKey(vals[0])];
+				size[i] = keys.length;
+				keys.forEach(k => { if (!buckets.has(k)) buckets.set(k, []); buckets.get(k).push(i); });
 			});
+			if (type === 'multi') {
+				if (!common) common = new Uint16Array(N * N);
+				buckets.forEach(list => { for (let a = 0; a < list.length; a++) for (let b = a + 1; b < list.length; b++) common[Math.min(list[a], list[b]) * N + Math.max(list[a], list[b])]++; });
+				buckets.forEach(list => { for (let a = 0; a < list.length; a++) for (let b = a + 1; b < list.length; b++) {
+					const i = Math.min(list[a], list[b]), j = Math.max(list[a], list[b]), c = common[i * N + j];
+					if (c > 0) { score[i * N + j] += w * c / (size[i] + size[j] - c); common[i * N + j] = 0; }
+				} });
+			} else {
+				buckets.forEach(list => { for (let a = 0; a < list.length; a++) for (let b = a + 1; b < list.length; b++) add(list[a], list[b], w); });
+			}
 		});
-		// computeRivalSuggestions ignoriert Paare, die bei a schon bekannt sind -> Gegenseite prüfen
-		h.sugg = [...pairs.values()].filter(p => !(p.a.rivals || []).some(r => r.id == p.b.id) && !(p.b.rivals || []).some(r => r.id == p.a.id))
-			.sort((x, y) => (y.score - x.score) || (Math.abs(x.a.elo - x.b.elo) - Math.abs(y.a.elo - y.b.elo)));
+		// „Rivale von Rivalen“
+		const idx = new Map(imgs.map((im, i) => [im.id, i]));
+		const chainW = settings.rivalChainWeight;
+		const known = new Set();
+		imgs.forEach((im, i) => {
+			const conf = [];
+			(im.rivals || []).forEach(r => {
+				const j = idx.get(r.id); if (j === undefined) return;
+				known.add(Math.min(i, j) * N + Math.max(i, j));
+				if (r.status === 'confirmed') conf.push(j);
+			});
+			if (chainW > 0) for (let a = 0; a < conf.length; a++) for (let b = a + 1; b < conf.length; b++) add(conf[a], conf[b], chainW);
+		});
+		// Beste RH_TOP Paare ermitteln (Histogramm statt Komplett-Sortierung)
+		let max = 0;
+		for (let i = 0; i < N; i++) for (let j = i + 1; j < N; j++) { const v = score[i * N + j]; if (v > max && !known.has(i * N + j)) max = v; }
+		let thr = 0;
+		if (max > 0) {
+			const bins = new Uint32Array(257);
+			for (let i = 0; i < N; i++) for (let j = i + 1; j < N; j++) { const v = score[i * N + j]; if (v > 0 && !known.has(i * N + j)) bins[Math.min(256, Math.floor(v / max * 256))]++; }
+			let cum = 0, b = 256;
+			for (; b >= 0; b--) { cum += bins[b]; if (cum >= RH_TOP) break; }
+			thr = Math.max(0, b) / 256 * max;
+		}
+		const cand = [];
+		if (max > 0) for (let i = 0; i < N; i++) for (let j = i + 1; j < N; j++) {
+			const v = score[i * N + j];
+			if (v > 0 && v >= thr && !known.has(i * N + j)) cand.push([i, j, v]);
+		}
+		cand.sort((x, y) => (y[2] - x[2]) || (Math.abs(imgs[x[0]].elo - imgs[x[1]].elo) - Math.abs(imgs[y[0]].elo - imgs[y[1]].elo)));
+		h.suggTotalCapped = cand.length > RH_TOP;
+		h.sugg = cand.slice(0, RH_TOP).map(([i, j, v]) => {
+			const a = imgs[i], b = imgs[j];
+			const chips = rivalTagChips(a, b, h.defsByName);
+			const chain = chainW > 0 ? rivalChainChip(a, b, h.byId) : null;
+			if (chain) chips.unshift(chain.chip);
+			return { a: a.id < b.id ? a : b, b: a.id < b.id ? b : a, score: v, shared: chips };
+		});
 	}
 
 	function renderRivalHub() {
 		const h = rivalHub, root = document.getElementById('rh-root');
 		if (!h || !root) return;
-		const confirmed = rivalHubEdges().length;
+		const nCl = rivalHubGetClusters().length;
 		root.innerHTML = '<h2 style="margin-top:0;">🕸️ Rivalen-Zentrale <small style="font-size:0.5em;color:#888;">Tab: ' + escHtml(h.tab) + '</small></h2>' +
-			'<div class="rh-tabs"><button class="rh-tab' + (h.view === 'list' ? ' on' : '') + '" onclick="rivalHubView(\'list\')">💡 Vorschläge (' + h.sugg.length + ')</button>' +
-			'<button class="rh-tab' + (h.view === 'graph' ? ' on' : '') + '" onclick="rivalHubView(\'graph\')">🕸️ Netzwerk (' + confirmed + ' Verbindungen)</button></div>' +
+			'<div class="rh-tabs"><button class="rh-tab' + (h.view === 'list' ? ' on' : '') + '" onclick="rivalHubView(\'list\')">💡 Vorschläge' + (h.sugg ? ' (' + h.sugg.length + (h.suggTotalCapped ? '+' : '') + ')' : '') + '</button>' +
+			'<button class="rh-tab' + (h.view === 'graph' ? ' on' : '') + '" onclick="rivalHubView(\'graph\')">🕸️ Netzwerk (' + nCl + ' Cluster)</button></div>' +
 			'<div id="rh-view"></div>';
 		if (h.view === 'list') renderRivalHubList(); else renderRivalHubGraph();
 	}
@@ -6004,13 +6088,18 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 
 	function renderRivalHubList() {
 		const h = rivalHub, view = document.getElementById('rh-view');
+		if (!h.sugg) {
+			view.innerHTML = '<div class="rh-empty">Vorschläge werden berechnet…</div>';
+			setTimeout(() => { if (rivalHub !== h || h.sugg) return; rivalHubComputeSuggestions(); if (rivalHub === h) renderRivalHub(); }, 30);
+			return;
+		}
 		const maxScore = h.sugg.length ? Math.ceil(h.sugg[0].score) : 1;
 		const q = h.query.trim().toLowerCase();
 		const list = h.sugg.filter(p => p.score >= h.minScore && (!q || p.a.name.toLowerCase().includes(q) || p.b.name.toLowerCase().includes(q) || p.shared.some(s => s.toLowerCase().includes(q))));
 		const side = i => '<div class="rh-side" onclick="showDetailsByID(' + i.id + ')" title="Details öffnen"><img src="' + imgUrl(i, 'thumb') + '" alt=""><span>' + escHtml(i.name) + '</span><span>Elo ' + Math.round(i.elo) + '</span></div>';
 		let html = '<div class="rh-bar"><label>Mindest-Übereinstimmung <input type="range" id="rh-min" min="0.5" max="' + Math.max(maxScore, 1) + '" step="0.5" value="' + Math.min(h.minScore, Math.max(maxScore, 1)) + '" oninput="rivalHubSetMin(this.value)"> <b id="rh-min-val">' + h.minScore + '</b></label>' +
 			'<input type="text" id="rh-q" placeholder="Suche (Name oder Eigenschaft)" value="' + escHtml(h.query) + '" oninput="rivalHubSetQuery(this.value)">' +
-			'<span>' + list.length + ' Vorschläge</span>' +
+			'<span>' + list.length + ' Vorschläge' + (h.suggTotalCapped ? ' (die besten ' + RH_TOP + ')' : '') + '</span>' +
 			'<button class="nav-btn" style="padding:5px 12px;" onclick="rivalHubResetDismissed()">Abgelehnte zurücksetzen</button></div>';
 		if (list.length === 0) html += '<div class="rh-empty">Keine Vorschläge für diese Einstellung.<br><small>Vorschläge entstehen aus gemeinsamen Eigenschaften (Gewichte in den Einstellungen).</small></div>';
 		else {
@@ -6041,14 +6130,14 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		await setRivalStatus(aId, bId, status, () => {
 			if (rivalHub !== h) return;
 			rivalHubApplyLocal(aId, bId, status);
-			h.sugg = h.sugg.filter(p => !(p.a.id == aId && p.b.id == bId) && !(p.a.id == bId && p.b.id == aId));
-			h.graph = null;
+			if (h.sugg) h.sugg = h.sugg.filter(p => !(p.a.id == aId && p.b.id == bId) && !(p.a.id == bId && p.b.id == aId));
+			h.graph = null; h.clusters = null;
 			// nur die Zeile entfernen (Scrollposition bleibt), Zähler aktualisieren
 			const row = document.querySelector('.rh-row[data-a="' + Math.min(aId, bId) + '"][data-b="' + Math.max(aId, bId) + '"]');
 			if (row) row.remove();
 			const tabs = document.querySelectorAll('.rh-tab');
-			if (tabs[0]) tabs[0].textContent = '💡 Vorschläge (' + h.sugg.length + ')';
-			if (tabs[1]) tabs[1].textContent = '🕸️ Netzwerk (' + rivalHubEdges().length + ' Verbindungen)';
+			if (tabs[0] && h.sugg) tabs[0].textContent = '💡 Vorschläge (' + h.sugg.length + (h.suggTotalCapped ? '+' : '') + ')';
+			if (tabs[1]) tabs[1].textContent = '🕸️ Netzwerk (' + rivalHubGetClusters().length + ' Cluster)';
 			const sp = document.querySelector('.rh-bar span'); if (sp) sp.textContent = document.querySelectorAll('.rh-row').length + ' Vorschläge';
 		});
 	}
@@ -6061,35 +6150,59 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		h.images.forEach(i => {
 			if ((i.rivals || []).some(r => r.status === 'dismissed')) { i.rivals = i.rivals.filter(r => r.status !== 'dismissed'); store.put(i); }
 		});
-		tx.oncomplete = () => { if (rivalHub !== h) return; rivalHubComputeSuggestions(); renderRivalHub(); };
+		tx.oncomplete = () => { if (rivalHub !== h) return; h.sugg = null; renderRivalHub(); };
 	}
 
-	// ---- Netzwerk-Graph (eigene Kräfte-Simulation, SVG) ----
-	function rivalHubBuildGraph() {
-		const h = rivalHub, edges = rivalHubEdges().map(e => ({ a: e[0], b: e[1], kind: 'rival' }));
-		if (h.showSugg) h.sugg.slice(0, 40).forEach(p => edges.push({ a: p.a.id, b: p.b.id, kind: 'sugg' }));
-		const ids = new Set(); edges.forEach(e => { ids.add(e.a); ids.add(e.b); });
-		const nodes = [...ids].map((id, k) => {
-			const ang = k * 2.399963, rad = 30 * Math.sqrt(k + 1);
-			return { id: id, img: h.byId.get(id), x: Math.cos(ang) * rad, y: Math.sin(ang) * rad, vx: 0, vy: 0, deg: 0, fixed: false };
-		});
-		const nById = new Map(nodes.map(n => [n.id, n]));
-		edges.forEach(e => { e.na = nById.get(e.a); e.nb = nById.get(e.b); e.na.deg++; e.nb.deg++; });
-		// Cluster = Zusammenhangskomponenten der bestätigten Rivalen (Vorschläge bilden keine Cluster)
-		const parent = new Map(nodes.map(n => [n.id, n.id]));
+	// ---- Cluster = Zusammenhangskomponenten der bestätigten Rivalen; Namen stehen als clusterName an den Bildern ----
+	function rivalHubGetClusters() {
+		const h = rivalHub;
+		if (h.clusters) return h.clusters;
+		const edges = rivalHubEdges(), parent = new Map();
 		const find = x => { while (parent.get(x) !== x) { parent.set(x, parent.get(parent.get(x))); x = parent.get(x); } return x; };
-		edges.filter(e => e.kind === 'rival').forEach(e => parent.set(find(e.a), find(e.b)));
+		edges.forEach(e => { e.forEach(id => { if (!parent.has(id)) parent.set(id, id); }); parent.set(find(e[0]), find(e[1])); });
 		const groups = new Map();
-		nodes.forEach(n => { const r = find(n.id); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(n); });
-		const clusters = [...groups.values()].sort((a, b) => b.length - a.length);
-		clusters.forEach((c, i) => { c.hue = (i * 137.5 + 210) % 360; c.idx = i; c.forEach(n => { n.cl = c; }); });
-		const g = { nodes: nodes, edges: edges, clusters: clusters, vb: { x: -400, y: -300, w: 800, h: 600 }, alpha: 1 };
-		for (let i = 0; i < 320; i++) rivalHubStep(g);
-		rivalHubFit(g);
-		return g;
+		parent.forEach((_, id) => { const r = find(id); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(h.byId.get(id)); });
+		const list = [...groups.values()].map(m => {
+			const cnt = new Map();
+			m.forEach(im => { if (im.clusterName) cnt.set(im.clusterName, (cnt.get(im.clusterName) || 0) + 1); });
+			let name = '', best = 0; cnt.forEach((n, nm) => { if (n > best) { best = n; name = nm; } });
+			return { members: m, name: name, avg: m.reduce((s, im) => s + im.elo, 0) / m.length };
+		}).sort((a, b) => (b.members.length - a.members.length) || (b.avg - a.avg));
+		list.forEach((c, i) => { c.idx = i; c.hue = (i * 137.5 + 210) % 360; });
+		h.clusters = list; h.edges = edges;
+		return list;
 	}
-	function rivalHubStep(g) {
-		const N = g.nodes, a = g.alpha;
+	async function rivalHubRename(ci) {
+		const h = rivalHub, c = h.clusters && h.clusters[ci];
+		if (!c) return;
+		const nm = prompt('Name für diesen Cluster (' + c.members.length + ' Bilder). Leer = Namen entfernen:', c.name || '');
+		if (nm === null) return;
+		const name = nm.trim();
+		const tx = db.transaction("images", "readwrite"), st = tx.objectStore("images");
+		for (const m of c.members) {
+			const im = await idbGet(st, m.id);
+			if (!im) continue;
+			if (name) im.clusterName = name; else delete im.clusterName;
+			st.put(im);
+		}
+		await txDone(tx);
+		c.members.forEach(m => { if (name) m.clusterName = name; else delete m.clusterName; });
+		c.name = name;
+		rivalHubRefreshLabels();
+	}
+	function rivalHubRefreshLabels() {
+		const h = rivalHub, g = h && h.graph; if (!g) return;
+		g.cls.forEach(cl => { if (cl.lbl) { cl.lbl.textContent = cl.src.name || ''; } });
+		const box = document.getElementById('rh-clusters'); if (box) box.innerHTML = rivalHubChipsHtml();
+		rivalHubPlaceAll();
+	}
+
+	// ---- Netzwerk-Graph: jeder Cluster wird für sich ausgelegt und dann zu einem Raster gepackt ----
+	const rhR = n => 15 + Math.min(14, n.deg * 2.2);
+	const rhColor = (cl, l) => 'hsl(' + Math.round(cl.src.hue) + ',70%,' + (l || 58) + '%)';
+
+	function rhStep(cl) {
+		const N = cl.nodes, a = cl.alpha;
 		for (let i = 0; i < N.length; i++) for (let j = i + 1; j < N.length; j++) {
 			const p = N[i], q = N[j]; let dx = p.x - q.x, dy = p.y - q.y, d2 = dx * dx + dy * dy;
 			if (d2 < 0.01) { dx = Math.random() - 0.5; dy = Math.random() - 0.5; d2 = 0.5; }
@@ -6097,115 +6210,197 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			const f = 5200 / d2 * a, d = Math.sqrt(d2);
 			p.vx += dx / d * f; p.vy += dy / d * f; q.vx -= dx / d * f; q.vy -= dy / d * f;
 		}
-		g.edges.forEach(e => {
-			const dx = e.nb.x - e.na.x, dy = e.nb.y - e.na.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
-			const rest = e.kind === 'rival' ? 90 : 150, k = (e.kind === 'rival' ? 0.06 : 0.006) * (d - rest) / d;
-			e.na.vx += dx * k; e.na.vy += dy * k; e.nb.vx -= dx * k; e.nb.vy -= dy * k;
+		cl.edges.forEach(e => {
+			const dx = e.b.x - e.a.x, dy = e.b.y - e.a.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
+			const k = 0.06 * (d - 90) / d;
+			e.a.vx += dx * k; e.a.vy += dy * k; e.b.vx -= dx * k; e.b.vy -= dy * k;
 		});
 		N.forEach(n => {
-			n.vx -= n.x * 0.004; n.vy -= n.y * 0.004;      // leichte Schwerkraft zur Mitte
+			n.vx -= n.x * 0.004; n.vy -= n.y * 0.004;
 			if (!n.fixed) { n.x += n.vx; n.y += n.vy; }
 			n.vx *= 0.6; n.vy *= 0.6;
 		});
-		g.alpha = Math.max(0.05, g.alpha * 0.985);
+		cl.alpha = Math.max(0.05, cl.alpha * 0.985);
+	}
+	function rhBounds(cl) {
+		let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+		cl.nodes.forEach(n => { const r = rhR(n) + 4; x0 = Math.min(x0, n.x - r); x1 = Math.max(x1, n.x + r); y0 = Math.min(y0, n.y - r); y1 = Math.max(y1, n.y + r); });
+		cl.bx0 = x0; cl.bx1 = x1; cl.by0 = y0; cl.by1 = y1;
+	}
+
+	function rivalHubBuildGraph() {
+		const h = rivalHub, all = rivalHubGetClusters();
+		const eligible = all.filter(c => c.members.length >= h.minSize && (h.only === null || c.idx === h.only));
+		const shown = [], hidden = [];
+		let count = 0;
+		eligible.forEach(c => {
+			if (h.only !== null || shown.length === 0 || count + c.members.length <= h.budget) { shown.push(c); count += c.members.length; }
+			else hidden.push(c);
+		});
+		const cls = [], nodeList = [], edgeList = [];
+		shown.forEach(c => {
+			const ids = new Set(c.members.map(m => m.id));
+			const nodes = c.members.map((im, k) => {
+				const ang = k * 2.399963, rad = 30 * Math.sqrt(k + 1);
+				return { img: im, id: im.id, x: Math.cos(ang) * rad, y: Math.sin(ang) * rad, vx: 0, vy: 0, deg: 0, fixed: false, gi: nodeList.length + k };
+			});
+			const byId = new Map(nodes.map(n => [n.id, n]));
+			const edges = h.edges.filter(e => ids.has(e[0])).map(e => ({ a: byId.get(e[0]), b: byId.get(e[1]) }));
+			edges.forEach(e => { e.a.deg++; e.b.deg++; });
+			const cl = { src: c, nodes: nodes, edges: edges, alpha: 1, ox: 0, oy: 0 };
+			nodes.forEach(n => { n.cl = cl; nodeList.push(n); });
+			const iters = nodes.length <= 4 ? 80 : nodes.length > 400 ? 120 : 300;
+			for (let i = 0; i < iters; i++) rhStep(cl);
+			rhBounds(cl);
+			cls.push(cl);
+		});
+		// Raster-Packung (Regalprinzip), große Cluster zuerst
+		const area = cls.reduce((s, c) => s + (c.bx1 - c.bx0 + 50) * (c.by1 - c.by0 + 50), 0);
+		const rowW = Math.max(Math.sqrt(area) * 1.5, cls.length ? (cls[0].bx1 - cls[0].bx0 + 50) : 100);
+		let x = 0, y = 0, rowH = 0, tx1 = 0, ty1 = 0;
+		cls.forEach(cl => {
+			const w = cl.bx1 - cl.bx0 + 50, hh = cl.by1 - cl.by0 + 50;
+			if (x > 0 && x + w > rowW) { x = 0; y += rowH; rowH = 0; }
+			cl.ox = x - cl.bx0 + 25; cl.oy = y - cl.by0 + 25;
+			x += w; rowH = Math.max(rowH, hh); tx1 = Math.max(tx1, x); ty1 = Math.max(ty1, y + rowH);
+		});
+		return { cls: cls, nodeList: nodeList, shown: shown, hidden: hidden, count: count, vb: { x: 0, y: 0, w: Math.max(tx1, 200), h: Math.max(ty1, 150) }, sugg: [] };
 	}
 	function rivalHubFit(g) {
-		if (!g.nodes.length) return;
+		const svg = document.getElementById('rh-svg'), ratio = svg && svg.clientWidth ? svg.clientHeight / svg.clientWidth : 0.6;
 		let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
-		g.nodes.forEach(n => { x0 = Math.min(x0, n.x); x1 = Math.max(x1, n.x); y0 = Math.min(y0, n.y); y1 = Math.max(y1, n.y); });
-		const pad = 60, w = Math.max(x1 - x0 + 2 * pad, 200), hh = Math.max(y1 - y0 + 2 * pad, 150);
-		const svg = document.getElementById('rh-svg'), ratio = svg && svg.clientWidth ? svg.clientHeight / svg.clientWidth : 0.75;
-		let W = w, H = w * ratio; if (H < hh) { H = hh; W = hh / ratio; }
+		g.cls.forEach(c => { x0 = Math.min(x0, c.ox + c.bx0); x1 = Math.max(x1, c.ox + c.bx1); y0 = Math.min(y0, c.oy + c.by0 - 24); y1 = Math.max(y1, c.oy + c.by1); });
+		if (x0 > x1) return;
+		const pad = 30; let W = x1 - x0 + 2 * pad, H = W * ratio;
+		if (H < y1 - y0 + 2 * pad) { H = y1 - y0 + 2 * pad; W = H / ratio; }
 		g.vb = { x: (x0 + x1) / 2 - W / 2, y: (y0 + y1) / 2 - H / 2, w: W, h: H };
 	}
-	const rhR = n => 15 + Math.min(14, n.deg * 2.2);
-	const rhColor = (n, l) => 'hsl(' + Math.round(n.cl.hue) + ',70%,' + (l || 58) + '%)';
+
+	function rivalHubChipsHtml() {
+		const h = rivalHub, g = h.graph;
+		let s = g.shown.slice(0, 60).map(c => {
+			const top = c.members.slice().sort((a, b) => b.elo - a.elo).slice(0, 3).map(n => escHtml(n.name)).join(', ');
+			return '<div class="rh-cl' + (h.only === c.idx ? ' on' : '') + '" onclick="rivalHubOnly(' + c.idx + ')" title="Nur diesen Cluster zeigen / wieder alle"><b style="background:hsl(' + Math.round(c.hue) + ',70%,58%)"></b>' +
+				'<strong>' + escHtml(c.name || 'Cluster ' + (c.idx + 1)) + '</strong> · ' + c.members.length + ' Bilder · Ø Elo ' + Math.round(c.avg) +
+				' <span class="rh-ren" onclick="event.stopPropagation(); rivalHubRename(' + c.idx + ')" title="Cluster benennen">✏️</span><br><span style="color:#888">' + top + '</span></div>';
+		}).join('');
+		if (g.shown.length > 60) s += '<div class="rh-cl" style="cursor:default;color:#888;">… und ' + (g.shown.length - 60) + ' weitere sichtbare Cluster</div>';
+		return s;
+	}
+	function rivalHubOnly(i) { const h = rivalHub; h.only = h.only === i ? null : i; h.graph = null; renderRivalHubGraph(); }
+	function rivalHubMore() { rivalHub.budget += RH_BUDGET; rivalHub.graph = null; renderRivalHubGraph(); }
+	function rivalHubSetMinSize(v) { rivalHub.minSize = Number(v); rivalHub.graph = null; renderRivalHubGraph(); }
+	function rivalHubToggleSugg(on) {
+		const h = rivalHub; h.showSugg = on;
+		if (on && !h.sugg) { showBusy('Vorschläge werden berechnet…'); setTimeout(() => { rivalHubComputeSuggestions(); showBusy(''); if (rivalHub === h) renderRivalHubGraph(); }, 30); return; }
+		renderRivalHubGraph();
+	}
 
 	function renderRivalHubGraph() {
 		const h = rivalHub, view = document.getElementById('rh-view');
-		const hasRivals = rivalHubEdges().length > 0;
-		if (!hasRivals && !h.showSugg) h.showSugg = true;
-		view.innerHTML = '<div class="rh-bar"><label><input type="checkbox" id="rh-sg" ' + (h.showSugg ? 'checked' : '') + ' onchange="rivalHub.showSugg=this.checked; rivalHub.graph=null; renderRivalHubGraph();"> Beste Vorschläge als gestrichelte Linien (40)</label>' +
-			'<span>Bild ziehen = verschieben · Hintergrund ziehen = Ansicht · Zoom: Mausrad/＋－ · Tippen: Details</span></div>' +
-			'<div class="rh-graphwrap"><svg id="rh-svg" xmlns="http://www.w3.org/2000/svg"></svg>' +
-			'<div class="rh-zoom"><button onclick="rivalHubZoom(0.8)">＋</button><button onclick="rivalHubZoom(1.25)">－</button><button onclick="rivalHubRefit()" title="Alles zeigen">⤢</button></div><div class="rh-tip" id="rh-tip" style="display:none;"></div></div>' +
-			'<div class="rh-clusters" id="rh-clusters"></div>';
-		if (!h.graph) h.graph = rivalHubBuildGraph();
-		if (!h.graph.nodes.length) {
-			document.querySelector('.rh-graphwrap').innerHTML = '<div class="rh-empty">Noch keine Verbindungen.<br><small>Bestätige unter „Vorschläge“ ein paar Rivalen – dann entstehen hier Cluster.</small></div>';
+		const all = rivalHubGetClusters();
+		if (all.length === 0) {
+			view.innerHTML = '<div class="rh-empty">Noch keine Verbindungen.<br><small>Bestätige unter „Vorschläge“ ein paar Rivalen – dann entstehen hier Cluster.</small></div>';
 			return;
 		}
-		rivalHubFit(h.graph);
-		drawRivalHubGraph(true);
+		if (!h.graph) h.graph = rivalHubBuildGraph();
+		const g = h.graph;
+		const sizes = [2, 3, 4, 5, 8, 12];
+		view.innerHTML = '<div class="rh-bar"><label>Cluster ab <select id="rh-ms" onchange="rivalHubSetMinSize(this.value)">' + sizes.map(n => '<option value="' + n + '"' + (n === h.minSize ? ' selected' : '') + '>' + n + ' Bildern</option>').join('') + '</select></label>' +
+			'<label><input type="checkbox" id="rh-sg" ' + (h.showSugg ? 'checked' : '') + ' onchange="rivalHubToggleSugg(this.checked)"> beste Vorschläge als gestrichelte Linien</label>' +
+			'<span>' + g.shown.length + ' Cluster · ' + g.count + ' Bilder' + (g.hidden.length ? ' · ' + g.hidden.length + ' weitere ausgeblendet' : '') + '</span>' +
+			(g.hidden.length ? '<button class="nav-btn" style="padding:5px 12px;" onclick="rivalHubMore()">Mehr einblenden</button>' : '') + '</div>' +
+			'<div class="rh-bar"><span>Bild ziehen = verschieben · Hintergrund ziehen = Ansicht · Zoom: Mausrad/＋－ · Tippen: Details · Cluster-Kasten anklicken = nur diesen zeigen</span></div>' +
+			'<div class="rh-graphwrap"><svg id="rh-svg" xmlns="http://www.w3.org/2000/svg"></svg>' +
+			'<div class="rh-zoom"><button onclick="rivalHubZoom(0.8)">＋</button><button onclick="rivalHubZoom(1.25)">－</button><button onclick="rivalHubRefit()" title="Alles zeigen">⤢</button></div><div class="rh-tip" id="rh-tip" style="display:none;"></div></div>' +
+			'<div class="rh-clusters" id="rh-clusters">' + rivalHubChipsHtml() + '</div>';
+		if (!g.cls.length) { document.querySelector('.rh-graphwrap').innerHTML = '<div class="rh-empty">Kein Cluster mit dieser Mindestgröße.</div>'; return; }
+		rivalHubFit(g);
+		rivalHubDrawGraph();
 		bindRivalHubGraph();
 	}
 
-	function drawRivalHubGraph(full) {
+	function rivalHubDrawGraph() {
 		const h = rivalHub, g = h.graph, svg = document.getElementById('rh-svg');
 		if (!svg) return;
-		svg.setAttribute('viewBox', g.vb.x + ' ' + g.vb.y + ' ' + g.vb.w + ' ' + g.vb.h);
-		const dim = n => h.focus !== null && n.cl.idx !== h.focus;
-		if (full || !svg.querySelector('.rh-n')) {
-			let s = '<defs>' + g.nodes.map(n => '<clipPath id="rhc' + n.id + '"><circle r="' + rhR(n) + '"/></clipPath>').join('') + '</defs>';
-			s += '<g id="rh-edges">' + g.edges.map((e, i) => '<line data-e="' + i + '" stroke="' + (e.kind === 'rival' ? rhColor(e.na, 60) : '#888') + '" stroke-width="' + (e.kind === 'rival' ? 2.5 : 1.3) + '"' + (e.kind === 'rival' ? '' : ' stroke-dasharray="5 5" opacity="0.45"') + '/>').join('') + '</g>';
-			s += '<g id="rh-nodes">' + g.nodes.map(n => '<g class="rh-n" data-id="' + n.id + '" style="cursor:pointer"><circle r="' + (rhR(n) + 3) + '" fill="' + rhColor(n) + '"/><image href="' + imgUrl(n.img, 'thumb') + '" x="' + (-rhR(n)) + '" y="' + (-rhR(n)) + '" width="' + (2 * rhR(n)) + '" height="' + (2 * rhR(n)) + '" preserveAspectRatio="xMidYMid slice" clip-path="url(#rhc' + n.id + ')"/></g>').join('') + '</g>';
-			svg.innerHTML = s;
-			document.getElementById('rh-clusters').innerHTML = g.clusters.filter(c => c.length > 1).map(c => {
-				const rivalsIn = c.filter(n => g.edges.some(e => e.kind === 'rival' && (e.na === n || e.nb === n))).length;
-				const top = c.slice().sort((a, b) => b.img.elo - a.img.elo).slice(0, 3).map(n => escHtml(n.img.name)).join(', ');
-				const avg = Math.round(c.reduce((s, n) => s + n.img.elo, 0) / c.length);
-				return '<div class="rh-cl' + (h.focus === c.idx ? ' on' : '') + '" onclick="rivalHubFocus(' + c.idx + ')"><b style="background:hsl(' + Math.round(c.hue) + ',70%,58%)"></b>' +
-					'Cluster ' + (c.idx + 1) + ' · ' + c.length + ' Bilder · Ø Elo ' + avg + '<br><span style="color:#888">' + top + '</span></div>';
-			}).join('');
+		let s = '<defs>' + g.nodeList.map(n => '<clipPath id="rhc' + n.gi + '"><circle r="' + rhR(n) + '"/></clipPath>').join('') + '</defs>';
+		g.cls.forEach((cl, ci) => {
+			s += '<g class="rh-c" data-ci="' + ci + '"><g>' + cl.edges.map(() => '<line stroke="' + rhColor(cl, 60) + '" stroke-width="2.5"/>').join('') + '</g>' +
+				'<g>' + cl.nodes.map(n => '<g class="rh-n" data-gi="' + n.gi + '" style="cursor:pointer"><circle r="' + (rhR(n) + 3) + '" fill="' + rhColor(cl) + '"/><image href="' + imgUrl(n.img, 'thumb') + '" x="' + (-rhR(n)) + '" y="' + (-rhR(n)) + '" width="' + (2 * rhR(n)) + '" height="' + (2 * rhR(n)) + '" preserveAspectRatio="xMidYMid slice" clip-path="url(#rhc' + n.gi + ')"/></g>').join('') + '</g>' +
+				'<text class="rh-lbl" text-anchor="middle">' + escHtml(cl.src.name || '') + '</text></g>';
+		});
+		s += '<g id="rh-sugg"></g>';
+		svg.innerHTML = s;
+		svg.querySelectorAll('.rh-c').forEach((el, ci) => {
+			const cl = g.cls[ci], lines = el.firstElementChild.children, ns = el.children[1].children;
+			cl.edgeEls = [...lines]; cl.nodeEls = [...ns]; cl.lbl = el.lastElementChild; cl.el = el;
+		});
+		// gestrichelte Vorschläge zwischen sichtbaren Bildern (nur Anzeige, wirkt nicht auf das Layout)
+		g.suggLines = [];
+		if (h.showSugg && h.sugg) {
+			const box = document.getElementById('rh-sugg'), byImg = new Map(g.nodeList.map(n => [n.id, n]));
+			h.sugg.forEach(p => {
+				if (g.suggLines.length >= 60) return;
+				const a = byImg.get(p.a.id), b = byImg.get(p.b.id);
+				if (!a || !b) return;
+				const ln = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+				ln.setAttribute('stroke', '#999'); ln.setAttribute('stroke-width', '1.4'); ln.setAttribute('stroke-dasharray', '5 5'); ln.setAttribute('opacity', '0.6');
+				box.appendChild(ln); g.suggLines.push({ a: a, b: b, el: ln });
+			});
 		}
-		svg.querySelectorAll('line[data-e]').forEach(l => {
-			const e = g.edges[l.dataset.e];
-			l.setAttribute('x1', e.na.x); l.setAttribute('y1', e.na.y); l.setAttribute('x2', e.nb.x); l.setAttribute('y2', e.nb.y);
-			l.style.opacity = h.focus !== null && (dim(e.na) || dim(e.nb)) ? 0.08 : '';
-		});
-		svg.querySelectorAll('.rh-n').forEach(el => {
-			const n = g.nodes.find(x => x.id == el.dataset.id);
-			el.setAttribute('transform', 'translate(' + n.x + ',' + n.y + ')');
-			el.style.opacity = dim(n) ? 0.15 : '';
-		});
+		rivalHubPlaceAll();
 	}
-	function rivalHubFocus(i) { const h = rivalHub; h.focus = h.focus === i ? null : i; renderRivalHubGraph(); }
+	function rivalHubPlaceCluster(cl) {
+		const g = rivalHub.graph;
+		cl.nodes.forEach((n, i) => cl.nodeEls[i].setAttribute('transform', 'translate(' + (n.x + cl.ox) + ',' + (n.y + cl.oy) + ')'));
+		cl.edges.forEach((e, i) => { const l = cl.edgeEls[i]; l.setAttribute('x1', e.a.x + cl.ox); l.setAttribute('y1', e.a.y + cl.oy); l.setAttribute('x2', e.b.x + cl.ox); l.setAttribute('y2', e.b.y + cl.oy); });
+		rhBounds(cl);
+		cl.lbl.setAttribute('x', cl.ox + (cl.bx0 + cl.bx1) / 2); cl.lbl.setAttribute('y', cl.oy + cl.by0 - 6);
+		g.suggLines.forEach(s => { if (s.a.cl === cl || s.b.cl === cl) { s.el.setAttribute('x1', s.a.x + s.a.cl.ox); s.el.setAttribute('y1', s.a.y + s.a.cl.oy); s.el.setAttribute('x2', s.b.x + s.b.cl.ox); s.el.setAttribute('y2', s.b.y + s.b.cl.oy); } });
+	}
+	function rivalHubPlaceAll() {
+		const g = rivalHub && rivalHub.graph; if (!g || !g.cls[0] || !g.cls[0].nodeEls) return;
+		g.cls.forEach(rivalHubPlaceCluster);
+		const svg = document.getElementById('rh-svg'); if (svg) svg.setAttribute('viewBox', g.vb.x + ' ' + g.vb.y + ' ' + g.vb.w + ' ' + g.vb.h);
+	}
 	function rivalHubZoom(f, cx, cy) {
 		const vb = rivalHub.graph.vb; cx = cx === undefined ? vb.x + vb.w / 2 : cx; cy = cy === undefined ? vb.y + vb.h / 2 : cy;
-		vb.x = cx - (cx - vb.x) * f; vb.y = cy - (cy - vb.y) * f; vb.w *= f; vb.h *= f; drawRivalHubGraph();
+		vb.x = cx - (cx - vb.x) * f; vb.y = cy - (cy - vb.y) * f; vb.w *= f; vb.h *= f;
+		document.getElementById('rh-svg').setAttribute('viewBox', vb.x + ' ' + vb.y + ' ' + vb.w + ' ' + vb.h);
 	}
-	function rivalHubRefit() { rivalHubFit(rivalHub.graph); drawRivalHubGraph(); }
+	function rivalHubRefit() { const g = rivalHub.graph; rivalHubFit(g); document.getElementById('rh-svg').setAttribute('viewBox', g.vb.x + ' ' + g.vb.y + ' ' + g.vb.w + ' ' + g.vb.h); }
 
 	function bindRivalHubGraph() {
 		const h = rivalHub, g = h.graph, svg = document.getElementById('rh-svg'), tip = document.getElementById('rh-tip');
+		const setVB = () => svg.setAttribute('viewBox', g.vb.x + ' ' + g.vb.y + ' ' + g.vb.w + ' ' + g.vb.h);
 		const toWorld = ev => { const r = svg.getBoundingClientRect(); return { x: g.vb.x + (ev.clientX - r.left) / r.width * g.vb.w, y: g.vb.y + (ev.clientY - r.top) / r.height * g.vb.h }; };
 		let drag = null, moved = false, raf = 0;
-		const kick = () => { if (raf) return; raf = requestAnimationFrame(function tick() {
-			raf = 0; if (rivalHub !== h || h.graph !== g) return;
-			g.alpha = Math.max(g.alpha, 0.3); for (let i = 0; i < 2; i++) rivalHubStep(g); drawRivalHubGraph();
-			if (drag && drag.node) raf = requestAnimationFrame(tick);
+		const kick = cl => { if (raf) return; raf = requestAnimationFrame(function tick() {
+			raf = 0; if (rivalHub !== h || h.graph !== g || !drag || !drag.node) return;
+			cl.alpha = Math.max(cl.alpha, 0.3); rhStep(cl); rhStep(cl); rivalHubPlaceCluster(cl);
+			raf = requestAnimationFrame(tick);
 		}); };
 		svg.addEventListener('pointerdown', ev => {
 			const el = ev.target.closest('.rh-n'); moved = false;
 			svg.setPointerCapture(ev.pointerId); svg.classList.add('drag');
-			if (el) { const n = g.nodes.find(x => x.id == el.dataset.id); n.fixed = true; drag = { node: n, id: n.id }; }
+			if (el) { const n = g.nodeList[Number(el.dataset.gi)]; n.fixed = true; drag = { node: n }; }
 			else drag = { pan: true, sx: ev.clientX, sy: ev.clientY, vx: g.vb.x, vy: g.vb.y };
 		});
 		svg.addEventListener('pointermove', ev => {
 			if (!drag) {
 				const el = ev.target.closest && ev.target.closest('.rh-n');
-				if (el) { const n = g.nodes.find(x => x.id == el.dataset.id); tip.style.display = 'block'; tip.textContent = n.img.name + ' · Elo ' + Math.round(n.img.elo); } else tip.style.display = 'none';
+				if (el) { const n = g.nodeList[Number(el.dataset.gi)]; tip.style.display = 'block'; tip.textContent = n.img.name + ' · Elo ' + Math.round(n.img.elo) + (n.cl.src.name ? ' · ' + n.cl.src.name : ''); } else tip.style.display = 'none';
 				return;
 			}
 			moved = true;
-			if (drag.node) { const w = toWorld(ev); drag.node.x = w.x; drag.node.y = w.y; kick(); }
-			else { const r = svg.getBoundingClientRect(); g.vb.x = drag.vx - (ev.clientX - drag.sx) / r.width * g.vb.w; g.vb.y = drag.vy - (ev.clientY - drag.sy) / r.height * g.vb.h; drawRivalHubGraph(); }
+			if (drag.node) { const w = toWorld(ev), cl = drag.node.cl; drag.node.x = w.x - cl.ox; drag.node.y = w.y - cl.oy; kick(cl); }
+			else { const r = svg.getBoundingClientRect(); g.vb.x = drag.vx - (ev.clientX - drag.sx) / r.width * g.vb.w; g.vb.y = drag.vy - (ev.clientY - drag.sy) / r.height * g.vb.h; setVB(); }
 		});
 		const end = () => {
 			svg.classList.remove('drag');
 			if (drag && drag.node) {
 				drag.node.fixed = false;
-				if (!moved) { const id = drag.id; drag = null; showDetailsByID(id); return; }
+				if (!moved) { const id = drag.node.id; drag = null; showDetailsByID(id); return; }
 			}
 			drag = null;
 		};
