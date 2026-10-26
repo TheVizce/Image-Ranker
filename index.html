@@ -5,7 +5,7 @@
     // Darstellung früh setzen, damit die Seite nicht kurz im anderen Design aufblitzt
     (function () {
         var t = 'arena';
-        try { t = localStorage.getItem('theme') || 'arena'; } catch (e) {}
+        try { t = localStorage.getItem('ranker.theme') || localStorage.getItem('theme') || 'arena'; } catch (e) {}
         document.documentElement.setAttribute('data-theme', t === 'plain' ? 'plain' : 'arena');
     })();
 </script>
@@ -1143,8 +1143,90 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
          · Handy-Layout steht gesammelt im CSS-Block "SMARTPHONE" am Ende des <style>.
        ===================================================================== */
     let db = null;
-    let currentTab = localStorage.getItem('activeTab') || "Standard";
-    let tabs = JSON.parse(localStorage.getItem('tabs')) || ["Standard"];
+    // ===================== SPEICHER: localStorage-Schlüssel mit Präfix, Fehleranzeige, Migration =====================
+    // Alle GitHub-Pages-Tools einer Domain teilen sich EINEN localStorage (~5 MB). Daher: eigene Schlüssel mit Präfix,
+    // kein clear(), nur kleine UI-Daten hier. Bilder/Duelle/Eigenschaften liegen in IndexedDB "ImageRankerDB".
+    const LS_PREFIX = 'ranker.';
+    function lsGet(k) { try { return localStorage.getItem(LS_PREFIX + k); } catch (e) { return null; } }
+    function lsSet(k, v) {
+        try { localStorage.setItem(LS_PREFIX + k, v); return true; }
+        catch (e) { storageProblem(e, 'Einstellung „' + k + '“'); return false; }
+    }
+    function lsRemove(k) { try { localStorage.removeItem(LS_PREFIX + k); } catch (e) {} }
+
+    // Sichtbarer Hinweis bei Speicherproblemen (localStorage oder IndexedDB), damit Änderungen nicht still verloren gehen
+    let storageWarnAt = 0;
+    function storageProblem(err, what) {
+        const name = err && err.name ? err.name : 'Fehler';
+        console.error('Speicherproblem (' + what + '):', err);
+        const now = Date.now();
+        if (now - storageWarnAt < 8000) return;
+        storageWarnAt = now;
+        let el = document.getElementById('storage-warn');
+        if (!el) {
+            el = document.createElement('div'); el.id = 'storage-warn';
+            el.style.cssText = 'position:fixed; left:50%; top:10px; transform:translateX(-50%); z-index:9000; background:#b3261e; color:#fff; padding:10px 40px 10px 16px; border-radius:12px; max-width:92vw; font-size:0.9em; box-shadow:0 10px 30px rgba(0,0,0,0.5); line-height:1.4;';
+            (document.body || document.documentElement).appendChild(el);
+        }
+        const quota = name === 'QuotaExceededError' || /quota/i.test(String(err && err.message));
+        el.innerHTML = '⚠️ <b>Speichern fehlgeschlagen</b> (' + String(what).replace(/</g, '&lt;') + ': ' + name + ').' +
+            (quota ? ' Der Browser-Speicher ist voll – bitte ein Backup exportieren und Platz schaffen (andere Tools auf derselben Adresse teilen sich den Speicher).' : ' Änderungen sind eventuell nicht gesichert – bitte ein Backup exportieren.') +
+            '<span onclick="this.parentNode.remove()" style="position:absolute; right:12px; top:6px; cursor:pointer; font-size:1.3em;">&times;</span>';
+    }
+
+    // Einmalige Übernahme der alten, allgemeinen Schlüssel ("tabs", "settings", ...) in die neuen mit Präfix.
+    // Nur Werte, die zu diesem Tool passen, werden übernommen; der alte Schlüssel wird erst danach entfernt.
+    // Fremde Schlüssel (anderes Tool, gleiche Domain) bleiben unangetastet.
+    function migrateLocalStorage() {
+        try {
+            const raw = k => localStorage.getItem(k);
+            const json = k => { try { return JSON.parse(raw(k)); } catch (e) { return undefined; } };
+            const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
+            const num = v => v !== null && v !== '' && isFinite(Number(v));
+            const SETTING_KEYS = ['matchupMode', 'focusMatches', 'eloWindow', 'shareOutside', 'shareRival', 'uncertainBelow', 'newbieBoost', 'tabAccent', 'tagOrder', 'imageFit', 'dailyGoals', 'tagWeights'];
+            const checks = {
+                tabs: () => { const v = json('tabs'); return Array.isArray(v) && v.length > 0 && v.every(t => typeof t === 'string' && t); },
+                settings: () => { const v = json('settings'); return isObj(v) && Object.keys(v).length > 0 && Object.keys(v).every(k => SETTING_KEYS.includes(k)); },
+                matchFilters: () => { const v = json('matchFilters'); return isObj(v) && Object.values(v).every(x => isObj(x) && Array.isArray(x.conds)); },
+                uiPrefs: () => { const v = json('uiPrefs'); return isObj(v) && Object.keys(v).every(k => ['extras', 'keys'].includes(k)); },
+                rankView: () => { const v = json('rankView'); return isObj(v) && Object.keys(v).every(k => ['cols', 'tiles'].includes(k)); },
+                theme: () => ['arena', 'plain'].includes(raw('theme')),
+                activeTab: () => typeof raw('activeTab') === 'string' && raw('activeTab') !== '',
+                focusId: () => num(raw('focusId')),
+                focusCount: () => num(raw('focusCount')),
+                lastBackupAt: () => num(raw('lastBackupAt'))
+            };
+            const strict = ['tabs', 'settings', 'matchFilters', 'uiPrefs', 'rankView'];
+            const loose = ['theme', 'activeTab', 'focusId', 'focusCount', 'lastBackupAt'];
+            // „Gehört dem Tool“ ist bewiesen, wenn die Tab-Liste passt und der aktive Tab darin vorkommt
+            const tabsV = checks.tabs() ? json('tabs') : null;
+            const proven = !!(tabsV && (raw('activeTab') === null || tabsV.includes(raw('activeTab'))));
+            [...strict, ...loose].forEach(k => {
+                const old = raw(k);
+                if (old === null) return;
+                if (!strict.includes(k) && !proven) return;      // lose Schlüssel nur anfassen, wenn der Besitz bewiesen ist
+                if (!checks[k]()) return;                         // sieht nicht nach diesem Tool aus -> nicht anfassen
+                if (localStorage.getItem(LS_PREFIX + k) === null) localStorage.setItem(LS_PREFIX + k, old);
+                if (localStorage.getItem(LS_PREFIX + k) !== null) localStorage.removeItem(k);   // erst nach erfolgreichem Kopieren
+            });
+        } catch (e) { console.warn('Übernahme der alten Einstellungen nicht möglich:', e); }
+    }
+    migrateLocalStorage();
+
+    // Dauerhaften Speicher anfragen und Auslastung prüfen (IndexedDB wird sonst bei Platzmangel evtl. vom Browser geräumt)
+    async function checkStorageHealth(announce) {
+        const out = { persisted: null, usage: null, quota: null };
+        try {
+            if (navigator.storage && navigator.storage.persisted) out.persisted = await navigator.storage.persisted();
+            if (navigator.storage && navigator.storage.persist && !out.persisted) out.persisted = await navigator.storage.persist();
+            if (navigator.storage && navigator.storage.estimate) { const e = await navigator.storage.estimate(); out.usage = e.usage; out.quota = e.quota; }
+        } catch (e) { /* nicht unterstützt */ }
+        if (out.quota && out.usage / out.quota > 0.9) storageProblem({ name: 'QuotaExceededError', message: 'Speicher zu über 90 % belegt' }, 'Speicherplatz');
+        return out;
+    }
+
+    let currentTab = lsGet('activeTab') || "Standard";
+    let tabs = JSON.parse(lsGet('tabs')) || ["Standard"];
     let curL = null, curR = null;
     // Rückgängig: pro Tab ein Stapel der letzten Duelle (nur Duell-Felder werden zurückgesetzt, Tags/Rivalen bleiben unberührt)
     const UNDO_LIMIT = 50;
@@ -1152,8 +1234,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
     let forcedPair = null;   // [leftId, rightId]: nächstes Duell erzwingen (nach Rückgängig)
     let lastVotedPair = null; // [leftId, rightId] des letzten Votes (Wiederholungssperre)
     let previousRankMap = {};
-	let focusId = localStorage.getItem('focusId') ? Number(localStorage.getItem('focusId')) : null;
-	let focusCount = localStorage.getItem('focusCount') ? Number(localStorage.getItem('focusCount')) : 0;
+	let focusId = lsGet('focusId') ? Number(lsGet('focusId')) : null;
+	let focusCount = lsGet('focusCount') ? Number(lsGet('focusCount')) : 0;
 	// ===================== EINSTELLUNGEN =====================
 	// Standardwerte. Geänderte Werte werden über das Einstellungsfenster (⚙️) im Browser gespeichert
 	// und überschreiben diese Defaults.
@@ -1244,11 +1326,11 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	}
 
 	function loadSettings() {
-		try { return sanitizeSettings(JSON.parse(localStorage.getItem('settings'))); }
+		try { return sanitizeSettings(JSON.parse(lsGet('settings'))); }
 		catch (e) { return sanitizeSettings(null); }
 	}
 	function saveSettings() {
-		try { localStorage.setItem('settings', JSON.stringify(settings)); } catch (e) { console.warn("Einstellungen konnten nicht gespeichert werden.", e); }
+		try { lsSet('settings', JSON.stringify(settings)); } catch (e) { console.warn("Einstellungen konnten nicht gespeichert werden.", e); }
 	}
 
 	let settings = loadSettings();
@@ -1257,6 +1339,9 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
     request.onblocked = () => alert("Die Datenbank muss aktualisiert werden. Bitte alle anderen Fenster/Tabs mit dieser Seite schließen.");
     request.onsuccess = async e => {
         db = e.target.result;
+        db.onerror = ev => { const er = ev.target && ev.target.error; if (er) storageProblem(er, 'Datenbank'); };
+        db.onabort = ev => { const er = ev.target && ev.target.error; if (er) storageProblem(er, 'Datenbank'); };
+        checkStorageHealth();
         db.onversionchange = () => { db.close(); alert("Die Datenbank wurde in einem anderen Fenster aktualisiert. Bitte diese Seite neu laden."); };
         try { await migrateTagOptions(); } catch (err) { console.error("Migration der Eigenschaftswerte fehlgeschlagen:", err); }
         try { await syncTagOptionsFromImages(); } catch (err) { console.error("Abgleich der Eigenschaftswerte fehlgeschlagen:", err); }
@@ -3002,8 +3087,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
     // ===================== BACKUP-HINWEIS (wann war das letzte Backup?) =====================
     // Pro Gerät: Zeitpunkt des letzten Exports/Imports. Zeigt, wie lange das her ist und wie viele Duelle seitdem dazukamen.
     const BACKUP_WARN_DAYS = 7, BACKUP_WARN_MATCHES = 300;
-    function getLastBackupAt() { try { return Number(localStorage.getItem('lastBackupAt')) || 0; } catch (e) { return 0; } }
-    function setLastBackupAt(t) { try { localStorage.setItem('lastBackupAt', String(t)); } catch (e) {} }
+    function getLastBackupAt() { try { return Number(lsGet('lastBackupAt')) || 0; } catch (e) { return 0; } }
+    function setLastBackupAt(t) { try { lsSet('lastBackupAt', String(t)); } catch (e) {} }
     function agoText(t) {
         const min = Math.floor((Date.now() - t) / 60000);
         if (min < 1) return 'gerade eben';
@@ -3217,10 +3302,10 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 
                 // EINSTELLUNGEN und Tabs wiederherstellen (nur, wenn das Backup welche enthält)
                 if (data.settings && typeof data.settings === 'object') {
-                    localStorage.setItem('settings', JSON.stringify(sanitizeSettings(data.settings)));
+                    lsSet('settings', JSON.stringify(sanitizeSettings(data.settings)));
                 }
                 if (data.tabs) {
-                    localStorage.setItem('tabs', JSON.stringify(data.tabs));
+                    lsSet('tabs', JSON.stringify(data.tabs));
                 }
                 setLastBackupAt(Number(data.exportedAt) || Date.now());
                 alert("Import erfolgreich! Alle IDs und Verknüpfungen wurden exakt wiederhergestellt.");
@@ -3243,8 +3328,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
             cont.appendChild(div);
         });
     }
-    function switchTab(t) { currentTab = t; localStorage.setItem('activeTab', t); refreshUI(); }
-    function addTab() { const n = prompt("Name:"); if(n && !tabs.includes(n)) { tabs.push(n); localStorage.setItem('tabs', JSON.stringify(tabs)); switchTab(n); } }
+    function switchTab(t) { currentTab = t; lsSet('activeTab', t); refreshUI(); }
+    function addTab() { const n = prompt("Name:"); if(n && !tabs.includes(n)) { tabs.push(n); lsSet('tabs', JSON.stringify(tabs)); switchTab(n); } }
     // Löscht alle Bilder (samt Vorschaubildern) und Duelle eines Tabs
     async function wipeTab(tabName, tx) {
         const imgStore = tx.objectStore("images");
@@ -3264,7 +3349,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
             mine.forEach(i => forgetImage(i.id));
             invalidateMatchCache();
             delete undoStacks[t];
-            tabs = tabs.filter(x => x !== t); localStorage.setItem('tabs', JSON.stringify(tabs)); switchTab("Standard");
+            tabs = tabs.filter(x => x !== t); lsSet('tabs', JSON.stringify(tabs)); switchTab("Standard");
         };
     }
     async function deleteImage(id) {
@@ -4019,9 +4104,17 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		h += '<div style="' + hint + '">Das Backup ist eine ZIP-Datei mit Bildern, Duellen, Eigenschaften und diesen Einstellungen. Alte JSON-Backups lassen sich weiter importieren.</div>';
 		h += '</div>';
 
+		h += '<div style="' + box + '"><h3 style="' + title + '">Speicher</h3><div id="storage-info" style="' + hint + ' margin-top:0;">wird geprüft…</div>' +
+			'<div style="' + hint + '">Bilder, Duelle und Eigenschaften liegen in der Browser-Datenbank (IndexedDB „ImageRankerDB“), kleine Einstellungen im localStorage mit dem Präfix „ranker.“. Regelmäßig ein Backup exportieren schützt vor Verlust.</div></div>';
 		h += '<div style="text-align:right;"><button class="secondary" onclick="resetSettings()">Einstellungen auf Standard zurücksetzen</button></div>';
 		h += '</div>';
 		showModal(h);
+		checkStorageHealth().then(r => {
+			const el = document.getElementById('storage-info'); if (!el) return;
+			const mb = v => (v / 1048576).toFixed(v > 1e8 ? 0 : 1).replace('.', ',') + ' MB';
+			el.innerHTML = (r.usage !== null ? 'Belegt: <b>' + mb(r.usage) + '</b>' + (r.quota ? ' von ca. ' + mb(r.quota) : '') + ' · ' : '') +
+				'Dauerhafter Speicher: <b>' + (r.persisted === null ? 'unbekannt' : r.persisted ? 'ja' : 'nein (der Browser darf bei Platzmangel räumen)') + '</b>';
+		});
 	}
 
 
@@ -4056,7 +4149,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	function setTheme(v) {
 		const t = v === 'plain' ? 'plain' : 'arena';
 		document.documentElement.setAttribute('data-theme', t);
-		try { localStorage.setItem('theme', t); } catch (e) {}
+		try { lsSet('theme', t); } catch (e) {}
 	}
 	// ----- Werte der Eigenschaften in den Einstellungen -----
 	const settingsOpenDefs = new Set();
@@ -4182,11 +4275,11 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	let rankTagDefs = [], bulkSel = new Set();
 	function getRankView() {
 		let o = {};
-		try { const v = JSON.parse(localStorage.getItem('rankView')); if (v && typeof v === 'object') o = v; } catch (e) {}
+		try { const v = JSON.parse(lsGet('rankView')); if (v && typeof v === 'object') o = v; } catch (e) {}
 		if (o.tiles === undefined && window.innerWidth <= 700) o.tiles = true;   // auf dem Handy standardmäßig Kacheln
 		return o;
 	}
-	function saveRankView(o) { try { localStorage.setItem('rankView', JSON.stringify(o)); } catch (e) {} }
+	function saveRankView(o) { try { lsSet('rankView', JSON.stringify(o)); } catch (e) {} }
 	function applyRankCols() {
 		const rv = getRankView(), vis = new Set(rv.cols || RANK_DEFAULT_COLS);
 		let css = '';
@@ -5281,14 +5374,14 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	// ===================== ANZEIGE-EINSTELLUNGEN (pro Gerät) =====================
 	const uiPrefs = (() => {
 		let o = {};
-		try { o = JSON.parse(localStorage.getItem('uiPrefs')) || {}; } catch (e) {}
+		try { o = JSON.parse(lsGet('uiPrefs')) || {}; } catch (e) {}
 		return { extras: o.extras !== false, keys: o.keys !== false };
 	})();
 	function applyUiPrefs() { document.documentElement.setAttribute('data-extras', uiPrefs.extras ? 'on' : 'off'); }
 	applyUiPrefs();
 	function setUiPref(key, on) {
 		uiPrefs[key] = !!on;
-		try { localStorage.setItem('uiPrefs', JSON.stringify(uiPrefs)); } catch (e) {}
+		try { lsSet('uiPrefs', JSON.stringify(uiPrefs)); } catch (e) {}
 		applyUiPrefs();
 		if (key === 'extras') {
 			if (curL && curR) { displaySide('left', curL); displaySide('right', curR); updateProbDisplay(); }
@@ -5425,7 +5518,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	// Zwei unabhängige Filter pro Tab: "match" (Duelle, im Browser gespeichert) und "list" (Rangliste, nur bis zum Neuladen).
 	const EMPTY_MARK = '__empty__';
 	const matchFilters = (() => {
-		try { const o = JSON.parse(localStorage.getItem('matchFilters')); return (o && typeof o === 'object') ? o : {}; }
+		try { const o = JSON.parse(lsGet('matchFilters')); return (o && typeof o === 'object') ? o : {}; }
 		catch (e) { return {}; }
 	})();
 	const listFilters = {};
@@ -5433,7 +5526,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	let listFilterOpen = false;
 
 	function saveMatchFilters() {
-		try { localStorage.setItem('matchFilters', JSON.stringify(matchFilters)); } catch (e) { console.warn("Filter konnte nicht gespeichert werden.", e); }
+		try { lsSet('matchFilters', JSON.stringify(matchFilters)); } catch (e) { console.warn("Filter konnte nicht gespeichert werden.", e); }
 	}
 	function getFilter(ctx, tab) {
 		const store = ctx === 'match' ? matchFilters : listFilters;
@@ -6432,11 +6525,11 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 
 	function saveFocusState() {
 		if (focusId === null) {
-			localStorage.removeItem('focusId');
-			localStorage.removeItem('focusCount');
+			lsRemove('focusId');
+			lsRemove('focusCount');
 		} else {
-			localStorage.setItem('focusId', focusId);
-			localStorage.setItem('focusCount', focusCount);
+			lsSet('focusId', focusId);
+			lsSet('focusCount', focusCount);
 		}
 	}
 	function exportRankingsToCSV() {
