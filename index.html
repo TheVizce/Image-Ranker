@@ -2379,7 +2379,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
         }
         html += '</div>';
 
-        html += buildGroupSection(img, tabImages);
+        html += buildGroupSection(img, tabImages, tagDefs);
         html += buildRivalSection(img, tabImages, tagDefs);
         html += '</div>';
         // --- SPALTE 3: nur ansehen (Kennzahlen, Insights, Matchups) ---
@@ -6056,6 +6056,36 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		});
 		return { score: score, shared: shared };
 	}
+	// Wie gut passt ein Eintrag zu einer Gruppe? Vergleicht seine Eigenschaften mit den Mitgliedern (Anteil der Mitglieder mit gleichem Wert) und zählt Rivalen unter den Mitgliedern.
+	function groupFit(img, members, defsByName) {
+		const mem = members.filter(m => m.id !== img.id), n = mem.length;
+		if (n < 2) return { score: 0, chips: [] };
+		let score = 0; const chips = [];
+		const minCnt = n <= 3 ? 1 : 2;
+		defsByName.forEach((def, tagName) => {
+			if (tagName === GROUP_TAG) return;
+			const w = getRivalTagWeight(img.tab, tagName);
+			if (!(w > 0)) return;
+			const type = tagTypeOf(def), mine = getTagValuesAs(img, tagName, type);
+			mine.forEach(v => {
+				let cnt = 0;
+				if (type === 'number') {
+					const a = parseTagNumber(v); if (!isFinite(a)) return;
+					const tol = getTagTolerance(def);
+					mem.forEach(m => { const t = getTagValuesAs(m, tagName, type); if (t.length) { const b = parseTagNumber(t[0]); if (isFinite(b) && Math.abs(a - b) <= tol) cnt++; } });
+				} else {
+					const k = tagKey(v);
+					mem.forEach(m => { if (getTagValuesAs(m, tagName, type).some(x => tagKey(x) === k)) cnt++; });
+				}
+				const frac = cnt / n;
+				if (cnt >= minCnt && frac >= 0.3) { score += w * frac; chips.push(tagName + ': ' + v + ' (' + cnt + '/' + n + ')'); }
+			});
+		});
+		const rv = new Set((img.rivals || []).filter(r => r.status === 'confirmed').map(r => r.id));
+		const rc = mem.filter(m => rv.has(m.id)).length;
+		if (rc > 0) { score += rc; chips.unshift('🤝 Rivale von ' + rc + (rc === 1 ? ' Mitglied' : ' Mitgliedern')); }
+		return { score: score, chips: chips };
+	}
 	function groupChip(common) {
 		return common.length === 1 ? '🫧 Gleiche Gruppe: ' + common[0] : '🫧 Gehört zur Schnittmenge ' + common.slice(0, 3).join(' ∩ ') + (common.length > 3 ? ' +' + (common.length - 3) : '');
 	}
@@ -6082,7 +6112,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		return result.slice(0, limit || RIVAL_SUGGESTION_COUNT);
 	}
 
-	function buildGroupSection(img, tabImages) {
+	function buildGroupSection(img, tabImages, tagDefs) {
 		const mine = getGroups(img), mineKeys = new Set(mine.map(groupKey));
 		const all = [...groupsOfImages(tabImages).values()].sort((a, b) => a.name.localeCompare(b.name, 'de'));
 		const labelStyle = 'color:#888; font-size:0.8em; text-transform:uppercase; font-weight:bold; letter-spacing:1px;';
@@ -6097,11 +6127,23 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		h += '<select id="grp-add-sel" onchange="groupDetailAdd(' + img.id + ',' + escAttrJs(img.tab) + ',this)" style="background:#1a1a1a; border:1px solid #333; color:#eee; border-radius:4px; padding:5px 8px; max-width:100%;">' +
 			'<option value="">＋ Zu Gruppe hinzufügen…</option>' + free.map(g => '<option value="' + escHtml(g.name) + '">' + escHtml(g.name) + ' (' + g.members.length + ')</option>').join('') +
 			'<option value="__new__">✨ Neue Gruppe…</option></select>';
+		const dbn = new Map((tagDefs || []).map(d => [d.tagName, d]));
+		const sug = free.map(g => ({ g: g, f: groupFit(img, g.members, dbn) })).filter(x => x.f.score >= 0.3).sort((a, b) => b.f.score - a.f.score).slice(0, 3);
+		if (sug.length) {
+			h += '<div style="margin-top:10px;color:#888;font-size:0.9em;">💡 Passt vielleicht zu:</div>' + sug.map(x =>
+				'<div style="display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap;">' + groupPill(x.g.name) +
+				'<button class="nav-btn" style="padding:2px 10px;" onclick="groupDetailAddName(' + img.id + ',' + escAttrJs(x.g.name) + ')">＋</button>' +
+				'<span style="color:#999;font-size:0.9em;">' + x.f.chips.slice(0, 3).map(escHtml).join(' · ') + '</span></div>').join('');
+		}
 		return h + '</div>';
 	}
 	const escAttrJs = v => escHtml(JSON.stringify(String(v)));
 	async function groupDetailRemove(id, name) {
 		await editGroups([id], im => { im.groups = getGroups(im).filter(g => groupKey(g) !== groupKey(name)); });
+		showDetailsByID(id);
+	}
+	async function groupDetailAddName(id, name) {
+		await editGroups([id], im => { im.groups = getGroups(im).concat(name); });
 		showDetailsByID(id);
 	}
 	async function groupDetailAdd(id, tab, sel) {
@@ -6462,7 +6504,25 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		const opts = h.images.filter(i => !mk.has(i.id)).map(i => '<option value="' + escHtml(i.name) + '"></option>').join('');
 		return '<div style="margin-bottom:8px;"><b>' + groupPill(name) + '</b> – ' + members.length + ' Mitglieder <button class="nav-btn" style="padding:2px 10px;margin-left:8px;" onclick="rivalHub.gpanel=null;rhgRefreshPanel()">Schließen</button></div>' +
 			'<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">' + (members.length ? members.slice().sort((a, b) => b.elo - a.elo).map(m => '<span class="grp-pill" style="--gc:' + groupColor(name) + ';">' + escHtml(m.name) + '<button title="Aus Gruppe entfernen" onclick="rhgRemove(' + m.id + ')">✕</button></span>').join('') : '<i style="color:#777">Noch keine Mitglieder.</i>') + '</div>' +
+			rhgSuggHtml(g ? g.members : [], mk) +
 			'<input id="rhg-add" list="rhg-dl" placeholder="Eintrag hinzufügen (Name)…" onkeydown="if(event.key===\'Enter\')rhgAdd()"><datalist id="rhg-dl">' + opts + '</datalist> <button class="nav-btn" style="padding:4px 12px;" onclick="rhgAdd()">Hinzufügen</button>';
+	}
+	function rhgSuggHtml(members, mk) {
+		const h = rivalHub;
+		if (members.length < 2) return members.length ? '' : '';
+		const list = h.images.filter(i => !mk.has(i.id)).map(i => ({ i: i, f: groupFit(i, members, h.defsByName) })).filter(x => x.f.score >= 0.3)
+			.sort((a, b) => b.f.score - a.f.score).slice(0, 10);
+		if (!list.length) return '<div style="color:#777;margin-bottom:8px;">💡 Keine Vorschläge – es fehlen gemeinsame Eigenschaften oder Rivalen mit den Mitgliedern.</div>';
+		return '<div style="color:#aaa;margin-bottom:6px;">💡 Vorschläge (nach Eigenschaften und Rivalen der Mitglieder)</div><div style="display:flex;flex-direction:column;gap:5px;margin-bottom:12px;">' +
+			list.map(x => '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><b style="cursor:pointer;" onclick="showDetailsByID(' + x.i.id + ')">' + escHtml(x.i.name) + '</b>' +
+				'<button class="nav-btn" style="padding:2px 10px;" onclick="rhgAddId(' + x.i.id + ')">＋ hinzufügen</button>' +
+				'<span style="color:#999;">' + x.f.chips.slice(0, 3).map(escHtml).join(' · ') + '</span></div>').join('') + '</div>';
+	}
+	async function rhgAddId(id) {
+		const h = rivalHub; if (!h.gpanel) return;
+		const g = h.glist.find(x => x.key === h.gpanel), name = g ? g.name : h.gpanelName;
+		await editGroups([id], im => { im.groups = getGroups(im).concat(name); });
+		h.gg = null; renderRivalHubGroups();
 	}
 	function rhgRefreshPanel() {
 		const el = document.getElementById('rhg-panel'); if (!el) return;
