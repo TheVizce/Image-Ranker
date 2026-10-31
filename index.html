@@ -785,6 +785,12 @@ html[data-theme="arena"] div::-webkit-scrollbar-thumb { background: #3d3a68; }
 html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data-extras="off"] .cp-gap { display: none; }
 
 /* ===== ZOOM, ANIMATION, HINWEISE ===== */
+.grp-badges { position: absolute; top: 44px; left: 8px; right: 52px; z-index: 15; display: flex; flex-wrap: wrap; gap: 5px; pointer-events: none; }
+.grp-badge { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 3px 9px 3px 6px; border-radius: 14px; background: rgba(0,0,0,0.62); border: 1.5px solid var(--gc); color: #fff; font-size: 0.78em; backdrop-filter: blur(3px); }
+.grp-badge i { font-style: normal; color: var(--gc); }
+.grp-badge b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grp-pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 14px; border: 1.5px solid var(--gc); background: color-mix(in srgb, var(--gc) 18%, transparent); color: #eee; font-size: 0.85em; }
+.grp-pill button { background: none; border: none; color: #ccc; cursor: pointer; padding: 0 0 0 2px; font-size: 1em; line-height: 1; }
 .zoom-btn { position: absolute; top: 8px; right: 8px; z-index: 20; width: 34px; height: 34px; padding: 0; border-radius: 50%; border: 1px solid rgba(255,255,255,0.25); background: rgba(0,0,0,0.55); color: #fff; cursor: zoom-in; font-size: 1em; opacity: 0; transition: opacity .15s; }
 .image-container:hover .zoom-btn, .zoom-btn:focus-visible { opacity: 1; }
 #lightbox { position: fixed; inset: 0; z-index: 3000; background: rgba(0,0,0,0.93); display: none; flex-direction: column; align-items: center; justify-content: center; gap: 10px; cursor: zoom-out; padding: 16px; }
@@ -857,6 +863,12 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 .rh-cl b { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
 .rh-empty { padding: 30px; text-align: center; color: #888; }
 .rh-lbl { fill: #eee; font-weight: 700; font-size: 17px; paint-order: stroke; stroke: rgba(0,0,0,0.65); stroke-width: 4px; pointer-events: none; }
+.rhg-lbl-small { font-size: 13px; }
+.rh-reset { margin-top: 18px; padding-top: 10px; border-top: 1px solid var(--line, #2a2a2a); font-size: 0.8em; color: #888; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.rh-reset button { background: transparent; border: 1px solid #5a2a2a; color: #e08a80; border-radius: 8px; padding: 4px 10px; cursor: pointer; }
+.rh-cl.off { opacity: 0.4; }
+.rhg-panel { margin-top: 12px; padding: 12px; background: var(--surface, #161616); border: 1px solid var(--line, #333); border-radius: 12px; font-size: 0.85em; }
+.rhg-panel input { background: var(--surface-2, #1a1a1a); color: #eee; border: 1px solid var(--line, #444); border-radius: 6px; padding: 5px 8px; min-width: 200px; }
 .rh-ren { cursor: pointer; opacity: 0.7; margin-left: 4px; }
 .rh-ren:hover { opacity: 1; }
 .rh-bar select { background: var(--surface-2, #1a1a1a); color: #eee; border: 1px solid var(--line, #444); border-radius: 6px; padding: 4px 6px; }
@@ -1185,7 +1197,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
             const json = k => { try { return JSON.parse(raw(k)); } catch (e) { return undefined; } };
             const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
             const num = v => v !== null && v !== '' && isFinite(Number(v));
-            const SETTING_KEYS = ['matchupMode', 'focusMatches', 'eloWindow', 'shareOutside', 'shareRival', 'uncertainBelow', 'newbieBoost', 'tabAccent', 'tagOrder', 'imageFit', 'dailyGoals', 'tagWeights'];
+            const SETTING_KEYS = ['matchupMode', 'focusMatches', 'eloWindow', 'shareOutside', 'shareRival', 'shareGroup', 'rivalGroupWeight', 'uncertainBelow', 'newbieBoost', 'tabAccent', 'tagOrder', 'imageFit', 'dailyGoals', 'tagWeights'];
             const checks = {
                 tabs: () => { const v = json('tabs'); return Array.isArray(v) && v.length > 0 && v.every(t => typeof t === 'string' && t); },
                 settings: () => { const v = json('settings'); return isObj(v) && Object.keys(v).length > 0 && Object.keys(v).every(k => SETTING_KEYS.includes(k)); },
@@ -1246,7 +1258,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		focusMatches: 1000,       // Anzahl Duelle, die ein gesetzter Fokus anhält
 		eloWindow: 100,           // STANDARD: "Gleicher Elo-Bereich" = +/- so viele Elo-Punkte
 		shareOutside: 0.25,       // STANDARD: Anteil Zufallsgegner von außerhalb des Elo-Bereichs
-		rivalChainWeight: 1,      // Rivalen-Vorschläge: Zuschlag je gemeinsamem bestätigten Rivalen („Rivale von Rivalen“), 0 = aus
+		rivalGroupWeight: 1,      // Rivalen-Vorschläge: Zuschlag je gemeinsamer Gruppe (Schnittmenge), 0 = aus
+		shareGroup: 0.1,          // STANDARD: Anteil Gegner aus einer gemeinsamen Gruppe (ohne Gruppe geht der Anteil an die Elo-Nachbarn)
 		shareRival: 0.15,         // STANDARD: Anteil Rivalen (hat das Bild keine, geht der Anteil an die Elo-Nachbarn)
 		tagOrder: {},             // Reihenfolge der Eigenschaften pro Tab: { "<Tab>": ["Name", ...] } (fehlt der Tab = Anlegereihenfolge)
 		imageFit: {},             // Bilddarstellung pro Tab: { "<Tab>": "contain" } = ganzes Bild zeigen, z. B. bei quadratischen Bildern (fehlt der Tab = Zuschnitt)
@@ -1286,7 +1299,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			eloWindow: Math.round(num(r.eloWindow, 10, 2000, d.eloWindow)),
 			shareOutside: num(r.shareOutside, 0, 1, d.shareOutside),
 			shareRival: num(r.shareRival, 0, 1, d.shareRival),
-			rivalChainWeight: num(r.rivalChainWeight, 0, 100, d.rivalChainWeight),
+			rivalGroupWeight: num(r.rivalGroupWeight, 0, 100, d.rivalGroupWeight),
+			shareGroup: num(r.shareGroup, 0, 1, d.shareGroup),
 			uncertainBelow: Math.round(num(r.uncertainBelow, 0, 500, d.uncertainBelow)),
 			newbieBoost: r.newbieBoost === undefined ? !!d.newbieBoost : (r.newbieBoost === true || r.newbieBoost === 'true'),
 			tagWeights: {},
@@ -1311,7 +1325,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			const n = Math.round(Number(dg[tab]));
 			if (isFinite(n) && n >= 1) out.dailyGoals[tab] = Math.min(100000, n);
 		});
-		if (out.shareOutside + out.shareRival > 1) out.shareOutside = 1 - out.shareRival;
+		if (out.shareGroup + out.shareRival > 1) out.shareGroup = 1 - out.shareRival;
+		if (out.shareOutside + out.shareRival + out.shareGroup > 1) out.shareOutside = 1 - out.shareRival - out.shareGroup;
 		const src = (r.tagWeights && typeof r.tagWeights === 'object') ? r.tagWeights : d.tagWeights;
 		Object.keys(src).forEach(tab => {
 			const tw = src[tab];
@@ -1750,7 +1765,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			...STANDARD_MATCHMAKING,
 			eloWindow: settings.eloWindow,
 			shareOutside: settings.shareOutside,
-			shareRival: settings.shareRival
+			shareRival: settings.shareRival,
+			shareGroup: settings.shareGroup
 		};
 		const pick = arr => arr[Math.floor(Math.random() * arr.length)];
 
@@ -1783,8 +1799,19 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			return pick(rivals.filter(r => counts[r.id] === minCount));
 		}
 
+		// 1b. Gruppenmitglied (gemeinsame Gruppe; bevorzugt den, gegen den am seltensten gespielt wurde)
+		if (roll >= cfg.shareRival && roll < cfg.shareRival + cfg.shareGroup) {
+			const mine = new Set(getGroups(left).map(groupKey));
+			const mates = mine.size ? pool.filter(c => getGroups(c).some(g => mine.has(groupKey(g)))) : [];
+			if (mates.length > 0) {
+				const oppMap = opponentsOf(matchIdx, left.id);
+				const minCount = Math.min(...mates.map(c => oppMap.get(Number(c.id)) || 0));
+				return pick(mates.filter(c => (oppMap.get(Number(c.id)) || 0) === minCount));
+			}
+		}
+
 		// 2. Zufälliger Gegner von außerhalb des Elo-Bereichs
-		if (roll >= cfg.shareRival && roll < cfg.shareRival + cfg.shareOutside && outside.length > 0) {
+		if (roll >= cfg.shareRival + cfg.shareGroup && roll < cfg.shareRival + cfg.shareGroup + cfg.shareOutside && outside.length > 0) {
 			return pick(outside);
 		}
 
@@ -2352,6 +2379,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
         }
         html += '</div>';
 
+        html += buildGroupSection(img, tabImages);
         html += buildRivalSection(img, tabImages, tagDefs);
         html += '</div>';
         // --- SPALTE 3: nur ansehen (Kennzahlen, Insights, Matchups) ---
@@ -2736,6 +2764,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
         d.classList.toggle('fit-contain', isFitContain(img.tab || currentTab));
         if (container) { container.classList.remove('duel-in'); void container.offsetWidth; container.classList.add('duel-in'); }
 
+        renderGroupBadges(side, img);
         d.style.backgroundImage = `url("${url}")`;
         d.style.backgroundPositionY = (img.y || 50) + "%";
         
@@ -2900,7 +2929,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		const tagDefsForList = await getTagDefinitionsForTab(currentTab);
 		html += '<div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">';
 		html += '<input type="text" id="search-box" placeholder="Suchen..." oninput="filterRankTable(this.value)" style="flex:1; min-width:160px;">';
-		html += '<select id="rank-sort-sel" onchange="setRankSort(this.value)" title="Sortieren nach"><option value="rank">Sortierung: Rang</option>' + [['name','Name'],['elo','Elo'],['win','Winrate'],['m','Duelle'],['cov','Coverage'],['form','Form (letzte 5)']].map(o => '<option value="' + o[0] + '">' + o[1] + '</option>').join('') + tagDefsForList.map((d, di) => '<option value="tag:' + di + '">' + escHtml(d.tagName) + '</option>').join('') + '</select>';
+		html += '<select id="rank-sort-sel" onchange="setRankSort(this.value)" title="Sortieren nach"><option value="rank">Sortierung: Rang</option>' + [['name','Name'],['elo','Elo'],['win','Winrate'],['m','Duelle'],['cov','Coverage'],['form','Form (letzte 5)'],['groups','Gruppen']].map(o => '<option value="' + o[0] + '">' + o[1] + '</option>').join('') + tagDefsForList.map((d, di) => '<option value="tag:' + di + '">' + escHtml(d.tagName) + '</option>').join('') + '</select>';
 		html += '<button class="secondary" id="rank-sort-dir" onclick="toggleRankSortDir()" title="Reihenfolge umkehren">↕</button>';
 		html += '<button class="secondary" id="rank-edit-btn" onclick="toggleRankEdit()" title="Eigenschaften direkt in der Tabelle eintragen (blende dafür die Eigenschaften-Spalten ein)">' + (rankEdit ? '✔ Fertig' : '✏️ Bearbeiten') + '</button>';
 		html += '<button class="secondary" id="rank-view-btn" onclick="toggleRankTiles()" title="Zwischen Tabelle und Kacheln wechseln">' + (rv.tiles ? '☰ Tabelle' : '▦ Kacheln') + '</button>';
@@ -2927,7 +2956,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 					<th class="c-m sortable" data-sort="m" style="width: 50px;">M</th>
 					<th class="c-cov sortable" data-sort="cov" style="width: 55px;" title="Anteil der Gegner im Tab, gegen die das Bild schon gespielt hat">Cov</th>
 					<th class="c-form sortable" data-sort="form" style="width: 110px;">Form</th>
-					<th class="c-focus" style="width: 40px;">🎯</th>` +
+					<th class="c-focus" style="width: 40px;">🎯</th>
+					<th class="c-groups sortable" data-sort="groups">Gruppen</th>` +
 					tagDefsForList.map((d, di) => '<th class="ct' + di + ' sortable" data-sort="tag:' + di + '">' + escHtml(d.tagName) + '</th>').join('') +
 				`</tr></thead><tbody>`;
 	
@@ -3011,7 +3041,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 									filter: ${isFocused ? 'grayscale(0) drop-shadow(0 0 5px #e74c3c)' : 'grayscale(1) opacity(0.3)'};">
 							🎯
 						</button>
-					</td>` +
+					</td>
+					<td class="c-groups">${rankGroupCellHtml(img)}</td>` +
 					tagDefsForList.map((d, di) => '<td class="ct' + di + '" data-tag="' + escHtml(d.tagName) + '" style="color:#bbb; font-size:0.9em;">' + escHtml(getTagValues(img, d).join(', ')) + '</td>').join('') +
 				`</tr>`;
 		});
@@ -3445,8 +3476,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
         for (const cur of [curL, curR]) {
             const fresh = await new Promise(r => { const q = db.transaction('images').objectStore('images').get(cur.id); q.onsuccess = () => r(q.result); q.onerror = () => r(null); });
             if (!fresh) continue;
-            const pick = o => JSON.stringify([o.name, o.tags, o.rivals, o.y]);
-            if (pick(fresh) !== pick(cur)) { cur.name = fresh.name; cur.tags = fresh.tags; cur.rivals = fresh.rivals; cur.y = fresh.y; changed = true; }
+            const pick = o => JSON.stringify([o.name, o.tags, o.rivals, o.y, o.groups]);
+            if (pick(fresh) !== pick(cur)) { cur.name = fresh.name; cur.tags = fresh.tags; cur.rivals = fresh.rivals; cur.y = fresh.y; cur.groups = fresh.groups; changed = true; }
         }
         if (changed) { displaySide('left', curL); displaySide('right', curR); updateH2HStats(); }
     }
@@ -3597,6 +3628,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		if (key === 'm') return num('c-m');
 		if (key === 'cov') return num('c-cov');
 		if (key === 'form') return row.querySelectorAll('.form-dot.w').length;
+		if (key === 'groups') { const t = (cell('c-groups') ? cell('c-groups').textContent : '').trim().toLowerCase(); return t === '' ? null : t; }
 		if (key.startsWith('tag:')) {
 			const tc = cell('ct' + key.slice(4)); const t = (tc ? (tc.dataset.val !== undefined ? tc.dataset.val : tc.textContent) : '').trim();
 			if (t === '') return null;
@@ -3953,7 +3985,9 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			'<input id="set-shareRival" type="number" min="0" max="100" step="5" value="' + pct(settings.shareRival) + '" onchange="updateShare(\'shareRival\', this.value)" style="' + inp + ' width:90px;"></div>';
 		h += '<div style="' + row + '"><label for="set-shareOutside">Anteil von außerhalb des Elo-Bereichs (%)</label>' +
 			'<input id="set-shareOutside" type="number" min="0" max="100" step="5" value="' + pct(settings.shareOutside) + '" onchange="updateShare(\'shareOutside\', this.value)" style="' + inp + ' width:90px;"></div>';
-		h += '<div style="' + hint + '">Rest: <b id="set-shareNeighbor">' + (100 - pct(settings.shareRival) - pct(settings.shareOutside)) + '</b> % Elo-Nachbarn</div>';
+		h += '<div style="' + row + '"><label for="set-shareGroup">Anteil Gruppenmitglieder (%)</label>' +
+			'<input id="set-shareGroup" type="number" min="0" max="100" step="5" value="' + pct(settings.shareGroup) + '" onchange="updateShare(\'shareGroup\', this.value)" style="' + inp + ' width:90px;"></div>';
+		h += '<div style="' + hint + '">Rest: <b id="set-shareNeighbor">' + (100 - pct(settings.shareRival) - pct(settings.shareOutside) - pct(settings.shareGroup)) + '</b> % Elo-Nachbarn</div>';
 		h += '</div>';
 		h += '</div>';
 
@@ -4076,8 +4110,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 				'<b>Zahl (±):</b> freie Zahl (z. B. eine Jahreszahl), ein Abstand bis zur Toleranz zählt als Übereinstimmung.<br>' +
 				'Gewicht: leer = Standard (' + RIVAL_DEFAULT_TAG_WEIGHT + '), 0 = Eigenschaft wird bei den Rivalen-Vorschlägen ignoriert, je höher, desto mehr zählt sie.</div>';
 		}
-		h += '<div style="' + row + ' margin:12px 0 0 0;"><label for="set-rivalChainWeight">„Rivale von Rivalen“: Zuschlag je gemeinsamem Rivalen (0 = aus)</label>' +
-			'<input id="set-rivalChainWeight" type="number" min="0" max="100" step="0.5" value="' + settings.rivalChainWeight + '" onchange="updateSetting(\'rivalChainWeight\', this.value)" style="' + inp + ' width:90px;"></div>';
+		h += '<div style="' + row + ' margin:12px 0 0 0;"><label for="set-rivalGroupWeight">„Gehört zur Schnittmenge“: Zuschlag je gemeinsamer Gruppe (0 = aus)</label>' +
+			'<input id="set-rivalGroupWeight" type="number" min="0" max="100" step="0.5" value="' + settings.rivalGroupWeight + '" onchange="updateSetting(\'rivalGroupWeight\', this.value)" style="' + inp + ' width:90px;"></div>';
 		h += '<div style="' + hint + '">Sind A–B und A–C bestätigte Rivalen, steigt der Vorschlag B–C. Zum Vergleich: ein übereinstimmender Eigenschaftswert zählt mit seinem Gewicht (Standard ' + RIVAL_DEFAULT_TAG_WEIGHT + ').</div>';
 		h += '</div>';
 
@@ -4137,11 +4171,12 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		set('set-matchupMode', settings.matchupMode);
 		set('set-focusMatches', settings.focusMatches);
 		set('set-eloWindow', settings.eloWindow);
-		set('set-rivalChainWeight', settings.rivalChainWeight);
+		set('set-rivalGroupWeight', settings.rivalGroupWeight);
+		set('set-shareGroup', Math.round(settings.shareGroup * 100));
 		set('set-shareRival', Math.round(settings.shareRival * 100));
 		set('set-shareOutside', Math.round(settings.shareOutside * 100));
 		const nb = document.getElementById('set-shareNeighbor');
-		if (nb) nb.textContent = 100 - Math.round(settings.shareRival * 100) - Math.round(settings.shareOutside * 100);
+		if (nb) nb.textContent = 100 - Math.round(settings.shareRival * 100) - Math.round(settings.shareOutside * 100) - Math.round(settings.shareGroup * 100);
 		const hintEl = document.getElementById('set-mode-hint');
 		if (hintEl) hintEl.textContent = MATCHUP_MODES[settings.matchupMode];
 		const std = document.getElementById('settings-standard');
@@ -4271,7 +4306,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		{ key: 'tier', label: 'Tier', cls: 'c-tier' }, { key: 'elo', label: 'Elo', cls: 'c-elo' },
 		{ key: 'win', label: 'Winrate', cls: 'c-win' }, { key: 'm', label: 'Matches', cls: 'c-m' },
 		{ key: 'cov', label: 'Coverage', cls: 'c-cov' }, { key: 'form', label: 'Form', cls: 'c-form' },
-		{ key: 'focus', label: 'Fokus 🎯', cls: 'c-focus' }
+		{ key: 'focus', label: 'Fokus 🎯', cls: 'c-focus' }, { key: 'groups', label: 'Gruppen 🫧', cls: 'c-groups' }
 	];
 	const RANK_DEFAULT_COLS = RANK_COLS.map(c => c.key);
 	let rankTagDefs = [], bulkSel = new Set();
@@ -4342,8 +4377,40 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			h += '<button class="secondary" onclick="bulkApply(true)" title="Wert der Eigenschaft bei allen Ausgewählten entfernen">Leeren</button>';
 		}
 		h += '<button class="secondary" style="margin-left:auto;" onclick="bulkClear()">Auswahl aufheben</button></div>';
+		const gnames = [...groupsOfImages([...rankImgMap.values()]).values()].map(g => g.name).sort((a, b) => a.localeCompare(b, 'de'));
+		h += '<div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:8px;"><b>🫧 Gruppe</b><select id="bulk-grp"><option value="">– Gruppe wählen –</option>' +
+			gnames.map(n => '<option value="' + escHtml(n) + '">' + escHtml(n) + '</option>').join('') + '<option value="__new__">✨ Neue Gruppe…</option></select>' +
+			'<button onclick="bulkGroup(true)">Zur Gruppe</button><button class="secondary" onclick="bulkGroup(false)">Aus Gruppe</button></div>';
+		const keepG = bar.dataset.grp;
 		bar.innerHTML = h;
+		if (keepG) { const g = document.getElementById('bulk-grp'); if (g) g.value = keepG; }
 		if (rankTagDefs.length) bulkTagChanged();
+	}
+	async function bulkGroup(add) {
+		const sel = document.getElementById('bulk-grp');
+		if (!sel || bulkSel.size === 0) return;
+		let v = sel.value;
+		if (!v) { alert('Bitte erst eine Gruppe wählen.'); return; }
+		if (v === '__new__') {
+			if (!add) return;
+			v = (prompt('Name der neuen Gruppe:') || '').trim();
+			if (!v) return;
+			const ex = (await groupNamesOfTab(currentTab)).find(n => groupKey(n) === groupKey(v));
+			if (ex) v = ex;
+		}
+		if (!add && !confirm(bulkSel.size + ' Einträge aus der Gruppe „' + v + '“ entfernen?')) return;
+		const ids = [...bulkSel];
+		const n = await editGroups(ids, im => { im.groups = add ? getGroups(im).concat(v) : getGroups(im).filter(g => groupKey(g) !== groupKey(v)); });
+		document.getElementById('bulk-bar').dataset.grp = v === '__new__' ? '' : v;
+		refreshRankGroupCells();
+		renderBulkBar();
+	}
+	function rankGroupCellHtml(im) { return getGroups(im).map(g => groupPill(g)).join(' '); }
+	function refreshRankGroupCells() {
+		document.querySelectorAll('#rank-table tbody tr').forEach(tr => {
+			const im = rankImgMap.get(Number(tr.dataset.id)), c = tr.querySelector('.c-groups');
+			if (im && c) c.innerHTML = rankGroupCellHtml(im);
+		});
 	}
 	function bulkTagChanged() {
 		const sel = document.getElementById('bulk-tag'), mount = document.getElementById('bulk-val-mount');
@@ -4942,6 +5009,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 
 	// Werte eines Bildes für eine Eigenschaft als Liste (bei "exact"/"number" höchstens ein Eintrag)
 	function getTagValuesAs(img, tagName, type) {
+		if (tagName === GROUP_TAG) return getGroups(img).slice();
 		const t = img.tags && img.tags[tagName];
 		if (!t) return [];
 		const src = (type === 'multi' && Array.isArray(t.values)) ? t.values : [t.value];
@@ -4957,6 +5025,70 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		const t = img.tags[tagName] || (img.tags[tagName] = { value: "", showBadge: true });
 		if (type === 'multi') { t.values = arr.slice(); t.value = arr.join(', '); }
 		else { delete t.values; t.value = arr.length ? arr[0] : ""; }
+	}
+	// ===== GRUPPEN (Schnittmengen): ein Eintrag kann mehreren benannten Gruppen angehören, ohne dass diese verschmelzen =====
+	const GROUP_TAG = '👥 Gruppen';
+	const getGroups = img => (img && Array.isArray(img.groups)) ? img.groups : [];
+	const groupKey = s => String(s).trim().toLowerCase();
+	function groupHue(name) { let h = 7; for (const c of String(groupKey(name))) h = (h * 31 + c.codePointAt(0)) >>> 0; return (h * 137) % 360; }
+	const groupColor = name => 'hsl(' + groupHue(name) + ',70%,58%)';
+	function groupIcon(name) { const m = String(name).match(/^\p{Extended_Pictographic}/u); return m ? m[0] : '●'; }
+	// Map Schlüssel -> { name, members: [img] } über die übergebenen Bilder
+	function groupsOfImages(images) {
+		const map = new Map();
+		images.forEach(im => getGroups(im).forEach(g => {
+			const k = groupKey(g);
+			if (!map.has(k)) map.set(k, { key: k, name: g, members: [] });
+			map.get(k).members.push(im);
+		}));
+		return map;
+	}
+	function groupPill(name, extra) {
+		return '<span class="grp-pill" style="--gc:' + groupColor(name) + ';">' + escHtml(name) + (extra || '') + '</span>';
+	}
+	// Ändert die Gruppen mehrerer Bilder: fn(img) ändert img.groups; speichert und hält Caches aktuell
+	async function editGroups(ids, fn) {
+		const tx = db.transaction("images", "readwrite");
+		const store = tx.objectStore("images");
+		const done = [];
+		for (const id of ids) {
+			const im = await idbGet(store, Number(id));
+			if (!im) continue;
+			const before = JSON.stringify(getGroups(im));
+			fn(im);
+			const seen = new Set(), out = [];
+			getGroups(im).forEach(g => { const t = String(g).trim(); if (t && !seen.has(groupKey(t))) { seen.add(groupKey(t)); out.push(t); } });
+			if (out.length) im.groups = out; else delete im.groups;
+			if (JSON.stringify(getGroups(im)) !== before) { store.put(im); done.push(im); }
+		}
+		await txDone(tx);
+		done.forEach(im => {
+			[curL, curR].forEach(c => { if (c && c.id === im.id) c.groups = im.groups; });
+			if (rankImgMap.has(im.id)) rankImgMap.get(im.id).groups = im.groups;
+			if (rivalHub && rivalHub.byId && rivalHub.byId.has(im.id)) rivalHub.byId.get(im.id).groups = im.groups;
+		});
+		if (done.length) { renderGroupBadges('left', curL); renderGroupBadges('right', curR); }
+		return done.length;
+	}
+	// Alle Gruppennamen eines Tabs aus der DB (kanonische Schreibweise = erste gefundene)
+	async function groupNamesOfTab(tab) {
+		const all = await idbGetAll(db.transaction("images").objectStore("images"));
+		return [...groupsOfImages(all.filter(i => i.tab === tab)).values()].map(g => g.name).sort((a, b) => a.localeCompare(b, 'de'));
+	}
+	function renderGroupBadges(side, img) {
+		const c = document.getElementById('container-' + side) || document.getElementById('img-' + side);
+		if (!c) return;
+		let el = c.querySelector('.grp-badges');
+		const gs = getGroups(img);
+		if (!gs.length) { if (el) el.remove(); return; }
+		if (!el) { el = document.createElement('div'); el.className = 'grp-badges'; c.appendChild(el); }
+		el.innerHTML = gs.map(g => '<span class="grp-badge" style="--gc:' + groupColor(g) + ';" title="Gruppe: ' + escHtml(g) + '">' + (/^\p{Extended_Pictographic}/u.test(g) ? '' : '<i>●</i>') + '<b>' + escHtml(g) + '</b></span>').join('');
+	}
+	// Virtuelle Mehrfachauswahl-Eigenschaft, damit Filter und Statistik Gruppen ohne Sonderfall verstehen
+	function withGroupDef(defs, tab, images) {
+		const names = [...groupsOfImages(images).values()].map(g => g.name).sort((a, b) => a.localeCompare(b, 'de'));
+		if (!names.length) return defs;
+		return defs.concat([{ id: -1, tab: tab, tagName: GROUP_TAG, type: 'multi', options: names, virtual: true }]);
 	}
 	const getTagValues = (img, def) => getTagValuesAs(img, def.tagName, tagTypeOf(def));
 	const setTagValues = (img, def, arr) => setTagValuesAs(img, def.tagName, tagTypeOf(def), arr);
@@ -5542,7 +5674,9 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	const filterIsActive = f => !!(f && Array.isArray(f.conds) && f.conds.some(condActive));
 
 	async function getDefsByName(tab) {
-		const defs = await getTagDefinitionsForTab(tab);
+		let defs = await getTagDefinitionsForTab(tab);
+		const all = await idbGetAll(db.transaction("images").objectStore("images"));
+		defs = withGroupDef(defs, tab, all.filter(i => i.tab === tab));
 		return new Map(defs.map(d => [d.tagName, d]));
 	}
 
@@ -5584,9 +5718,10 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	}
 
 	async function loadFilterContext(tab) {
-		const defs = await getTagDefinitionsForTab(tab);
 		const all = await idbGetAll(db.transaction("images").objectStore("images"));
-		return { defs: defs, defsByName: new Map(defs.map(d => [d.tagName, d])), images: all.filter(i => i.tab === tab).sort((a, b) => b.elo - a.elo) };
+		const images = all.filter(i => i.tab === tab).sort((a, b) => b.elo - a.elo);
+		const defs = withGroupDef(await getTagDefinitionsForTab(tab), tab, images);
+		return { defs: defs, defsByName: new Map(defs.map(d => [d.tagName, d])), images: images };
 	}
 
 	// ---- Editor (wird in ein Element mit der ID flt-<ctx>-mount gezeichnet) ----
@@ -5675,8 +5810,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		if (!c) return;
 		let value = EMPTY_MARK;
 		if (optIdx >= 0) {
-			const defs = await getTagDefinitionsForTab(currentTab);
-			const def = defs.find(d => d.tagName === c.tag);
+			const def = (await getDefsByName(currentTab)).get(c.tag);
 			value = def && def.options ? def.options[optIdx] : undefined;
 			if (value === undefined) return;
 		}
@@ -5885,7 +6019,14 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	function rivalTagMatch(img, other, defsByName) {
 		let score = 0;
 		const shared = [];
-			defsByName.forEach((def, tagName) => {
+		const gw = settings.rivalGroupWeight;
+		if (gw > 0) {
+			const mineG = getGroups(img), theirKeys = new Set(getGroups(other).map(groupKey));
+			const common = mineG.filter(g => theirKeys.has(groupKey(g)));
+			if (common.length) { score += gw * common.length; shared.push(groupChip(common)); }
+		}
+		defsByName.forEach((def, tagName) => {
+			if (tagName === GROUP_TAG) return;
 			const weight = getRivalTagWeight(img.tab, tagName);
 			if (!(weight > 0)) return;
 			const type = tagTypeOf(def);
@@ -5915,6 +6056,9 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		});
 		return { score: score, shared: shared };
 	}
+	function groupChip(common) {
+		return common.length === 1 ? '🫧 Gleiche Gruppe: ' + common[0] : '🫧 Gehört zur Schnittmenge ' + common.slice(0, 3).join(' ∩ ') + (common.length > 3 ? ' +' + (common.length - 3) : '');
+	}
 	function rivalTagChips(a, b, defsByName) { return rivalTagMatch(a, b, defsByName).shared; }
 
 	// Vorschläge: Bilder im selben Tab mit Übereinstimmungen bei den Eigenschaften (gewichtet), ohne bereits bekannte (bestätigt/abgelehnt)
@@ -5925,25 +6069,10 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	function computeRivalSuggestions(img, tabImages, defsByName, limit) {
 		const known = new Set((img.rivals || []).map(r => r.id));
 		const result = [];
-		// „Rivale von Rivalen“: Wer mit mir gemeinsame bestätigte Rivalen hat, bekommt einen Zuschlag
-		const chainW = settings.rivalChainWeight;
-		let byId = null, myConf = null;
-		if (chainW > 0) {
-			byId = new Map(tabImages.map(i => [i.id, i]));
-			myConf = new Set((img.rivals || []).filter(r => r.status === 'confirmed' && byId.has(r.id)).map(r => r.id));
-		}
-
 		tabImages.forEach(other => {
 			if (other.id == img.id || known.has(other.id)) return;
 			let score = 0;
 			const shared = [];
-			if (myConf && myConf.size) {
-				const common = (other.rivals || []).filter(r => r.status === 'confirmed' && myConf.has(r.id)).map(r => byId.get(r.id).name);
-				if (common.length) {
-					score += chainW * common.length;
-					shared.push('🔗 Rivale von ' + common.slice(0, 3).join(', ') + (common.length > 3 ? ' +' + (common.length - 3) : ''));
-				}
-			}
 			const tm = rivalTagMatch(img, other, defsByName); score += tm.score; shared.push(...tm.shared);
 			if (score > 0) result.push({ img: other, score: score, shared: shared });
 		});
@@ -5951,6 +6080,41 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		// Höchster Score zuerst, bei Gleichstand die mit der ähnlichsten Elo
 		result.sort((a, b) => (b.score - a.score) || (Math.abs(a.img.elo - img.elo) - Math.abs(b.img.elo - img.elo)));
 		return result.slice(0, limit || RIVAL_SUGGESTION_COUNT);
+	}
+
+	function buildGroupSection(img, tabImages) {
+		const mine = getGroups(img), mineKeys = new Set(mine.map(groupKey));
+		const all = [...groupsOfImages(tabImages).values()].sort((a, b) => a.name.localeCompare(b.name, 'de'));
+		const labelStyle = 'color:#888; font-size:0.8em; text-transform:uppercase; font-weight:bold; letter-spacing:1px;';
+		let h = '<div id="grp-section" style="margin-bottom:20px; background:#111; padding:12px; border-radius:8px; border:1px solid #222; font-size:0.85em;">';
+		h += '<div style="' + labelStyle + ' margin-bottom:8px;">Gruppen</div>';
+		if (!mine.length) h += '<div style="color:#555; font-style:italic; margin-bottom:8px;">In keiner Gruppe.</div>';
+		else h += '<div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px;">' + mine.map(g => {
+			const n = (all.find(x => x.key === groupKey(g)) || { members: [] }).members.length;
+			return groupPill(g, ' <small style="color:#999;">' + n + '</small><button title="Aus Gruppe entfernen" onclick="groupDetailRemove(' + img.id + ',' + escAttrJs(g) + ')">✕</button>');
+		}).join('') + '</div>';
+		const free = all.filter(g => !mineKeys.has(g.key));
+		h += '<select id="grp-add-sel" onchange="groupDetailAdd(' + img.id + ',' + escAttrJs(img.tab) + ',this)" style="background:#1a1a1a; border:1px solid #333; color:#eee; border-radius:4px; padding:5px 8px; max-width:100%;">' +
+			'<option value="">＋ Zu Gruppe hinzufügen…</option>' + free.map(g => '<option value="' + escHtml(g.name) + '">' + escHtml(g.name) + ' (' + g.members.length + ')</option>').join('') +
+			'<option value="__new__">✨ Neue Gruppe…</option></select>';
+		return h + '</div>';
+	}
+	const escAttrJs = v => escHtml(JSON.stringify(String(v)));
+	async function groupDetailRemove(id, name) {
+		await editGroups([id], im => { im.groups = getGroups(im).filter(g => groupKey(g) !== groupKey(name)); });
+		showDetailsByID(id);
+	}
+	async function groupDetailAdd(id, tab, sel) {
+		let v = sel.value;
+		if (!v) return;
+		if (v === '__new__') {
+			v = (prompt('Name der neuen Gruppe (ein Emoji am Anfang wird als Symbol verwendet):') || '').trim();
+			if (!v) { sel.value = ''; return; }
+			const ex = (await groupNamesOfTab(tab)).find(n => groupKey(n) === groupKey(v));
+			if (ex) v = ex;
+		}
+		await editGroups([id], im => { im.groups = getGroups(im).concat(v); });
+		showDetailsByID(id);
 	}
 
 	function buildRivalSection(img, tabImages, tagDefs) {
@@ -6064,24 +6228,17 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	// Performance: Vorschläge werden erst bei Bedarf und über einen Index gerechnet (statt jedes Paar einzeln),
 	// der Graph zeigt zunächst nur die größten Cluster (Budget) und legt jeden Cluster für sich aus.
 	let rivalHub = null;
-	const RH_PAGE = 60, RH_TOP = 1500, RH_BUDGET = 150;
+	const RH_PAGE = 60, RH_TOP = 1500, RH_BUDGET = 150, RH_GNODES = 200;
 
 	async function openRivalHub(view) {
 		const ctx = await loadFilterContext(currentTab);
 		if (ctx.images.length < 2) { alert("Für Rivalen braucht der Tab mindestens zwei Bilder."); return; }
 		rivalHub = { tab: currentTab, images: ctx.images, defsByName: ctx.defsByName, byId: new Map(ctx.images.map(i => [i.id, i])),
 			view: view || (rivalHub && rivalHub.view) || 'list', minScore: 1, query: '', shown: RH_PAGE, sugg: null, showSugg: false,
-			only: null, graph: null, clusters: null, minSize: 2, budget: RH_BUDGET };
+			only: null, graph: null, clusters: null, minSize: 2, budget: RH_BUDGET, ghide: new Set(), gbudget: RH_GNODES, gpanel: null, gg: null };
 		showModal('<div id="rh-root"></div>');
 		document.getElementById('modal').classList.add('list-mode');
 		renderRivalHub();
-	}
-
-	// Bewertung eines Paares über Eigenschaften (identisch zu computeRivalSuggestions) – nur für die Chips der Top-Paare
-	function rivalChainChip(a, b, byId) {
-		const mine = new Set((a.rivals || []).filter(r => r.status === 'confirmed' && byId.has(r.id)).map(r => r.id));
-		const common = (b.rivals || []).filter(r => r.status === 'confirmed' && mine.has(r.id)).map(r => byId.get(r.id).name);
-		return common.length ? { n: common.length, chip: '🔗 Rivale von ' + common.slice(0, 3).join(', ') + (common.length > 3 ? ' +' + (common.length - 3) : '') } : null;
 	}
 
 	// Schnelle Berechnung aller Paar-Werte über einen Index. Ergebnis: die besten RH_TOP Paare.
@@ -6091,6 +6248,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		const add = (i, j, v) => { if (i > j) { const t = i; i = j; j = t; } score[i * N + j] += v; };
 		let common = null;
 		h.defsByName.forEach((def, tagName) => {
+			if (tagName === GROUP_TAG) return;
 			const w = getRivalTagWeight(h.tab, tagName);
 			if (!(w > 0)) return;
 			const type = tagTypeOf(def);
@@ -6121,18 +6279,13 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 				buckets.forEach(list => { for (let a = 0; a < list.length; a++) for (let b = a + 1; b < list.length; b++) add(list[a], list[b], w); });
 			}
 		});
-		// „Rivale von Rivalen“
+		// Gruppen (Schnittmengen): je gemeinsamer Gruppe ein Zuschlag
 		const idx = new Map(imgs.map((im, i) => [im.id, i]));
-		const chainW = settings.rivalChainWeight;
 		const known = new Set();
-		imgs.forEach((im, i) => {
-			const conf = [];
-			(im.rivals || []).forEach(r => {
-				const j = idx.get(r.id); if (j === undefined) return;
-				known.add(Math.min(i, j) * N + Math.max(i, j));
-				if (r.status === 'confirmed') conf.push(j);
-			});
-			if (chainW > 0) for (let a = 0; a < conf.length; a++) for (let b = a + 1; b < conf.length; b++) add(conf[a], conf[b], chainW);
+		imgs.forEach((im, i) => (im.rivals || []).forEach(r => { const j = idx.get(r.id); if (j !== undefined) known.add(Math.min(i, j) * N + Math.max(i, j)); }));
+		if (settings.rivalGroupWeight > 0) groupsOfImages(imgs).forEach(g => {
+			const ix = g.members.map(m => idx.get(m.id));
+			for (let a = 0; a < ix.length; a++) for (let b = a + 1; b < ix.length; b++) add(ix[a], ix[b], settings.rivalGroupWeight);
 		});
 		// Beste RH_TOP Paare ermitteln (Histogramm statt Komplett-Sortierung)
 		let max = 0;
@@ -6155,8 +6308,6 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		h.sugg = cand.slice(0, RH_TOP).map(([i, j, v]) => {
 			const a = imgs[i], b = imgs[j];
 			const chips = rivalTagChips(a, b, h.defsByName);
-			const chain = chainW > 0 ? rivalChainChip(a, b, h.byId) : null;
-			if (chain) chips.unshift(chain.chip);
 			return { a: a.id < b.id ? a : b, b: a.id < b.id ? b : a, score: v, shared: chips };
 		});
 	}
@@ -6167,11 +6318,265 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		const nCl = rivalHubGetClusters().length;
 		root.innerHTML = '<h2 style="margin-top:0;">🕸️ Rivalen-Zentrale <small style="font-size:0.5em;color:#888;">Tab: ' + escHtml(h.tab) + '</small></h2>' +
 			'<div class="rh-tabs"><button class="rh-tab' + (h.view === 'list' ? ' on' : '') + '" onclick="rivalHubView(\'list\')">💡 Vorschläge' + (h.sugg ? ' (' + h.sugg.length + (h.suggTotalCapped ? '+' : '') + ')' : '') + '</button>' +
-			'<button class="rh-tab' + (h.view === 'graph' ? ' on' : '') + '" onclick="rivalHubView(\'graph\')">🕸️ Netzwerk (' + nCl + ' Cluster)</button></div>' +
-			'<div id="rh-view"></div>';
-		if (h.view === 'list') renderRivalHubList(); else renderRivalHubGraph();
+			'<button class="rh-tab' + (h.view === 'groups' ? ' on' : '') + '" onclick="rivalHubView(\'groups\')">🫧 Gruppen (' + groupsOfImages(h.images).size + ')</button>' +
+			'<button class="rh-tab' + (h.view === 'graph' ? ' on' : '') + '" onclick="rivalHubView(\'graph\')">🕸️ Rivalen-Netz (' + nCl + ' Verbünde)</button></div>' +
+			'<div id="rh-view"></div>' +
+			'<div class="rh-reset">🧹 Rivalen &amp; Gruppen komplett löschen: <button onclick="rivalHubWipe(false)">nur dieser Tab</button><button onclick="rivalHubWipe(true)">alle Tabs</button></div>';
+		if (h.view === 'list') renderRivalHubList(); else if (h.view === 'groups') renderRivalHubGroups(); else renderRivalHubGraph();
 	}
 	function rivalHubView(v) { rivalHub.view = v; renderRivalHub(); }
+
+	// Alles auf null: Rivalen (bestätigt/abgelehnt), Gruppen und alte Cluster-Namen – nur nach Bestätigung
+	async function rivalHubWipe(allTabs) {
+		const h = rivalHub; if (!h) return;
+		const all = await idbGetAll(db.transaction("images").objectStore("images"));
+		const sel = all.filter(i => allTabs || i.tab === h.tab);
+		let conf = 0, dis = 0, assign = 0, cn = 0; const gnames = new Set();
+		sel.forEach(i => {
+			(i.rivals || []).forEach(r => { if (r.status === 'confirmed') conf++; else dis++; });
+			getGroups(i).forEach(g => { assign++; gnames.add(i.tab + '|' + groupKey(g)); });
+			if (i.clusterName) cn++;
+		});
+		if (!conf && !dis && !assign && !cn) { alert('Hier gibt es nichts zu löschen.'); return; }
+		const where = allTabs ? 'ALLEN Tabs' : 'Tab „' + h.tab + '“';
+		if (!confirm('In ' + where + ' wird alles gelöscht:\n\n• ' + Math.round(conf / 2) + ' bestätigte Rivalen-Paare\n• ' + Math.round(dis / 2) + ' abgelehnte Paare\n• ' + assign + ' Gruppenzuordnungen (' + gnames.size + ' Gruppen)' + (cn ? '\n• ' + cn + ' alte Cluster-Namen' : '') + '\n\nDas lässt sich nur über ein Backup rückgängig machen. Fortfahren?')) return;
+		const tx = db.transaction("images", "readwrite"), st = tx.objectStore("images");
+		sel.forEach(i => {
+			if (!(i.rivals && i.rivals.length) && !getGroups(i).length && !i.clusterName) return;
+			i.rivals = []; delete i.groups; delete i.clusterName; st.put(i);
+		});
+		await txDone(tx);
+		rankImgMap.forEach((im, id) => { if (allTabs || im.tab === h.tab) { im.rivals = []; delete im.groups; } });
+		closeModal();
+		alert('Zurückgesetzt: ' + Math.round(conf / 2) + ' Rivalen-Paare, ' + Math.round(dis / 2) + ' abgelehnte Paare und ' + assign + ' Gruppenzuordnungen gelöscht.');
+	}
+
+	// ===== Gruppen-Ansicht: überlappende Flächen (Schnittmengen). Ein Bild in mehreren Gruppen liegt in der Überlappung. =====
+	function rhgHash(id) { let x = (Number(id) * 2654435761) >>> 0; return x / 4294967296; }
+	function rhgGroups() { return [...groupsOfImages(rivalHub.images).values()].sort((a, b) => (b.members.length - a.members.length) || a.name.localeCompare(b.name, 'de')); }
+
+	function rhgBuild() {
+		const h = rivalHub, all = rhgGroups();
+		h.glist = all;
+		const vis = [], over = [];
+		const nodeSet = new Set();
+		all.forEach(g => {
+			if (h.ghide.has(g.key)) return;
+			const add = g.members.filter(m => !nodeSet.has(m.id)).length;
+			if (vis.length === 0 || nodeSet.size + add <= h.gbudget) { vis.push(g); g.members.forEach(m => nodeSet.add(m.id)); }
+			else over.push(g);
+		});
+		// Mittelpunkte der Gruppen
+		const K = 24;
+		const gs = vis.map((g, i) => ({ g: g, key: g.key, r: K * Math.sqrt(g.members.length) + 34, x: 0, y: 0, set: new Set(g.members.map(m => m.id)) }));
+		gs.forEach((c, i) => { const a = i * 2.399963, rad = 150 * Math.sqrt(i); c.x = Math.cos(a) * rad; c.y = Math.sin(a) * rad; });
+		const pairs = [];
+		for (let a = 0; a < gs.length; a++) for (let b = a + 1; b < gs.length; b++) {
+			let sh = 0; gs[a].set.forEach(id => { if (gs[b].set.has(id)) sh++; });
+			const frac = sh / Math.min(gs[a].set.size, gs[b].set.size);
+			pairs.push({ a: gs[a], b: gs[b], sh: sh, d: sh > 0 ? (gs[a].r + gs[b].r) * (1 - 0.7 * frac) : (gs[a].r + gs[b].r) * 1.05 });
+		}
+		for (let it = 0; it < 500; it++) {
+			const al = 1 - it / 500;
+			pairs.forEach(p => {
+				let dx = p.b.x - p.a.x, dy = p.b.y - p.a.y, d = Math.hypot(dx, dy) || 0.01;
+				let f = 0;
+				if (p.sh > 0) f = (d - p.d) * 0.12 * al; else if (d < p.d) f = (d - p.d) * 0.25 * al; else return;
+				dx /= d; dy /= d; p.a.x += dx * f; p.a.y += dy * f; p.b.x -= dx * f; p.b.y -= dy * f;
+			});
+			gs.forEach(c => { c.x *= 0.999; c.y *= 0.999; });
+		}
+		// Bilder: zu den Mitten ihrer Gruppen ziehen, einander und fremde Gruppen meiden
+		const byId = new Map(), gOf = new Map();
+		gs.forEach(c => c.g.members.forEach(m => { if (!gOf.has(m.id)) gOf.set(m.id, []); gOf.get(m.id).push(c); byId.set(m.id, m); }));
+		let ids = [...gOf.keys()].sort((a, b) => (gOf.get(b).length - gOf.get(a).length) || (byId.get(b).elo - byId.get(a).elo));
+		ids = ids.slice(0, Math.max(h.gbudget, 1));
+		const nodes = ids.map((id, gi) => {
+			const cs = gOf.get(id), tx = cs.reduce((s, c) => s + c.x, 0) / cs.length, ty = cs.reduce((s, c) => s + c.y, 0) / cs.length;
+			return { id: id, img: byId.get(id), gi: gi, cs: cs, tx: tx, ty: ty, x: tx + (rhgHash(id) - 0.5) * 40, y: ty + (rhgHash(id + 7) - 0.5) * 40, fixed: false };
+		});
+		const R = 21;
+		for (let it = 0; it < 320; it++) {
+			const al = 1 - it / 320;
+			nodes.forEach(n => { n.x += (n.tx - n.x) * 0.04; n.y += (n.ty - n.y) * 0.04; });
+			for (let a = 0; a < nodes.length; a++) for (let b = a + 1; b < nodes.length; b++) {
+				const p = nodes[a], q = nodes[b]; let dx = q.x - p.x, dy = q.y - p.y; const d = Math.hypot(dx, dy) || 0.01, m = 2 * R + 9;
+				if (d < m) { const f = (m - d) * 0.5 * Math.max(al, 0.5); dx /= d; dy /= d; p.x -= dx * f; p.y -= dy * f; q.x += dx * f; q.y += dy * f; }
+			}
+			nodes.forEach(n => gs.forEach(c => {
+				if (n.cs.includes(c)) return;
+				const dx = n.x - c.x, dy = n.y - c.y, d = Math.hypot(dx, dy) || 0.01, lim = c.r * 0.9;
+				if (d < lim) { const f = (lim - d) * 0.35; n.x += dx / d * f; n.y += dy / d * f; }
+			}));
+		}
+		return { gs: gs, nodes: nodes, over: over, count: nodes.length, vb: null };
+	}
+
+	function rhgHull(pts) {
+		if (pts.length < 3) return pts.slice();
+		const p = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+		const cr = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+		const lo = [], up = [];
+		p.forEach(q => { while (lo.length >= 2 && cr(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop(); lo.push(q); });
+		for (let i = p.length - 1; i >= 0; i--) { const q = p[i]; while (up.length >= 2 && cr(up[up.length - 2], up[up.length - 1], q) <= 0) up.pop(); up.push(q); }
+		lo.pop(); up.pop(); return lo.concat(up);
+	}
+	function rhgFit(g) {
+		const svg = document.getElementById('rh-svg'), ratio = svg && svg.clientWidth ? svg.clientHeight / svg.clientWidth : 0.6;
+		let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+		g.nodes.forEach(n => { x0 = Math.min(x0, n.x - 60); x1 = Math.max(x1, n.x + 60); y0 = Math.min(y0, n.y - 60); y1 = Math.max(y1, n.y + 60); });
+		if (x0 > x1) { g.vb = { x: -200, y: -150, w: 400, h: 300 }; return; }
+		let W = x1 - x0, H = W * ratio;
+		if (H < y1 - y0) { H = y1 - y0; W = H / ratio; }
+		g.vb = { x: (x0 + x1) / 2 - W / 2, y: (y0 + y1) / 2 - H / 2, w: W, h: H };
+	}
+	function rhgUpdate() {
+		const g = rivalHub.gg; if (!g) return;
+		g.nodes.forEach(n => n.el.setAttribute('transform', 'translate(' + n.x + ',' + n.y + ')'));
+		g.gs.forEach(c => {
+			const mem = c.g.members.map(m => g.nodes.find(n => n.id === m.id)).filter(Boolean);
+			if (!mem.length) { c.path.setAttribute('d', ''); c.lbl.textContent = ''; return; }
+			const hull = rhgHull(mem.map(n => [n.x, n.y]));
+			c.path.setAttribute('d', hull.length === 1 ? 'M' + hull[0][0] + ' ' + hull[0][1] + 'l0.01 0' : 'M' + hull.map(p => p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join('L') + 'Z');
+			const own = mem.filter(n => n.cs.length === 1);
+			const ref = own.length ? own : mem;
+			c.lbl.setAttribute('x', ref.reduce((s, n) => s + n.x, 0) / ref.length);
+			c.lbl.setAttribute('y', Math.min(...ref.map(n => n.y)) - 34);
+			c.lbl.textContent = c.g.name + ' (' + c.g.members.length + ')';
+		});
+	}
+
+	function rhgChipsHtml() {
+		const h = rivalHub;
+		return h.glist.map((g, i) => '<div class="rh-cl' + (h.ghide.has(g.key) ? ' off' : '') + (h.gpanel === g.key ? ' on' : '') + '" onclick="rhgToggle(' + i + ')" title="Ein-/ausblenden"><b style="background:' + groupColor(g.name) + '"></b>' +
+			'<strong>' + escHtml(g.name) + '</strong> · ' + g.members.length +
+			' <span class="rh-ren" onclick="event.stopPropagation(); rhgPanel(' + i + ')" title="Mitglieder verwalten">👥</span>' +
+			'<span class="rh-ren" onclick="event.stopPropagation(); rhgRename(' + i + ')" title="Umbenennen">✏️</span>' +
+			'<span class="rh-ren" onclick="event.stopPropagation(); rhgDelete(' + i + ')" title="Gruppe löschen">🗑</span></div>').join('');
+	}
+	function rhgPanelHtml() {
+		const h = rivalHub; if (!h.gpanel) return '';
+		const g = (h.glist || []).find(x => x.key === h.gpanel);
+		const name = g ? g.name : (h.gpanelName || h.gpanel), members = g ? g.members : [];
+		const mk = new Set(members.map(m => m.id));
+		const opts = h.images.filter(i => !mk.has(i.id)).map(i => '<option value="' + escHtml(i.name) + '"></option>').join('');
+		return '<div style="margin-bottom:8px;"><b>' + groupPill(name) + '</b> – ' + members.length + ' Mitglieder <button class="nav-btn" style="padding:2px 10px;margin-left:8px;" onclick="rivalHub.gpanel=null;rhgRefreshPanel()">Schließen</button></div>' +
+			'<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">' + (members.length ? members.slice().sort((a, b) => b.elo - a.elo).map(m => '<span class="grp-pill" style="--gc:' + groupColor(name) + ';">' + escHtml(m.name) + '<button title="Aus Gruppe entfernen" onclick="rhgRemove(' + m.id + ')">✕</button></span>').join('') : '<i style="color:#777">Noch keine Mitglieder.</i>') + '</div>' +
+			'<input id="rhg-add" list="rhg-dl" placeholder="Eintrag hinzufügen (Name)…" onkeydown="if(event.key===\'Enter\')rhgAdd()"><datalist id="rhg-dl">' + opts + '</datalist> <button class="nav-btn" style="padding:4px 12px;" onclick="rhgAdd()">Hinzufügen</button>';
+	}
+	function rhgRefreshPanel() {
+		const el = document.getElementById('rhg-panel'); if (!el) return;
+		const h = rivalHub; h.glist = rhgGroups();
+		el.innerHTML = rhgPanelHtml(); el.style.display = h.gpanel ? 'block' : 'none';
+		const box = document.getElementById('rh-clusters'); if (box) box.innerHTML = rhgChipsHtml();
+	}
+	function rhgChanged() { const h = rivalHub; h.sugg = null; h.gg = null; renderRivalHub(); }
+	function rhgToggle(i) { const h = rivalHub, g = h.glist[i]; if (!g) return; if (h.ghide.has(g.key)) h.ghide.delete(g.key); else h.ghide.add(g.key); h.gg = null; renderRivalHubGroups(); }
+	function rhgPanel(i) { const h = rivalHub, g = h.glist[i]; if (!g) return; h.gpanel = g.key; h.gpanelName = g.name; rhgRefreshPanel(); }
+	async function rhgNew() {
+		const nm = (prompt('Name der neuen Gruppe (ein Emoji am Anfang wird als Symbol verwendet):') || '').trim();
+		if (!nm) return;
+		const h = rivalHub, ex = rhgGroups().find(g => g.key === groupKey(nm));
+		h.gpanel = groupKey(nm); h.gpanelName = ex ? ex.name : nm;
+		renderRivalHubGroups();
+	}
+	async function rhgAdd() {
+		const h = rivalHub, inp = document.getElementById('rhg-add'); if (!inp || !h.gpanel) return;
+		const q = groupKey(inp.value); if (!q) return;
+		const hits = h.images.filter(i => groupKey(i.name) === q);
+		if (!hits.length) { alert('Kein Eintrag mit diesem Namen in diesem Tab.'); return; }
+		if (hits.length > 1) { alert('Der Name ist nicht eindeutig (' + hits.length + ' Treffer).'); return; }
+		const g = h.glist.find(x => x.key === h.gpanel), name = g ? g.name : h.gpanelName;
+		await editGroups([hits[0].id], im => { im.groups = getGroups(im).concat(name); });
+		h.gg = null; renderRivalHubGroups();
+	}
+	async function rhgRemove(id) {
+		const h = rivalHub, key = h.gpanel; if (!key) return;
+		await editGroups([id], im => { im.groups = getGroups(im).filter(x => groupKey(x) !== key); });
+		h.gg = null; renderRivalHubGroups();
+	}
+	async function rhgRename(i) {
+		const h = rivalHub, g = h.glist[i]; if (!g) return;
+		const nm = (prompt('Neuer Name für die Gruppe „' + g.name + '“:', g.name) || '').trim();
+		if (!nm || nm === g.name) return;
+		const other = h.glist.find(x => x.key === groupKey(nm) && x.key !== g.key);
+		if (other && !confirm('Es gibt schon eine Gruppe „' + other.name + '“. Beide zusammenführen?')) return;
+		const target = other ? other.name : nm;
+		await editGroups(g.members.map(m => m.id), im => { im.groups = getGroups(im).map(x => groupKey(x) === g.key ? target : x); });
+		if (h.gpanel === g.key) { h.gpanel = groupKey(target); h.gpanelName = target; }
+		if (h.ghide.has(g.key)) { h.ghide.delete(g.key); h.ghide.add(groupKey(target)); }
+		rhgChanged();
+	}
+	async function rhgDelete(i) {
+		const h = rivalHub, g = h.glist[i]; if (!g) return;
+		if (!confirm('Gruppe „' + g.name + '“ löschen? Die ' + g.members.length + ' Einträge bleiben erhalten, sie sind nur nicht mehr in dieser Gruppe.')) return;
+		await editGroups(g.members.map(m => m.id), im => { im.groups = getGroups(im).filter(x => groupKey(x) !== g.key); });
+		if (h.gpanel === g.key) h.gpanel = null;
+		rhgChanged();
+	}
+	function rhgMore() { rivalHub.gbudget += RH_GNODES; rivalHub.gg = null; renderRivalHubGroups(); }
+
+	function renderRivalHubGroups() {
+		const h = rivalHub, view = document.getElementById('rh-view'); if (!view) return;
+		h.glist = rhgGroups();
+		const newBtn = '<button class="nav-btn" style="padding:5px 12px;" onclick="rhgNew()">＋ Neue Gruppe</button>';
+		if (!h.glist.length && !h.gpanel) {
+			view.innerHTML = '<div class="rh-empty">Noch keine Gruppen.<br><small>Gruppen sind benannte Mengen (z. B. „Fußballerinnen“, „deutsche Sportlerinnen“). Ein Eintrag kann in mehreren sein – die Gruppen überlappen dann.<br>Du kannst sie hier anlegen, in den Details eines Eintrags oder in der Rangliste per Mehrfachauswahl.</small><br><br>' + newBtn + '</div>';
+			return;
+		}
+		if (!h.gg) h.gg = rhgBuild();
+		const g = h.gg;
+		view.innerHTML = '<div class="rh-bar">' + newBtn + '<span>' + g.gs.length + ' Gruppen sichtbar · ' + g.count + ' Bilder' + (g.over.length ? ' · ' + g.over.length + ' weitere wegen Platz ausgeblendet' : '') + '</span>' +
+			(g.over.length ? '<button class="nav-btn" style="padding:5px 12px;" onclick="rhgMore()">Mehr einblenden</button>' : '') + '</div>' +
+			'<div class="rh-bar"><span>Überlappende Flächen = Schnittmengen · Bild ziehen = verschieben · Hintergrund ziehen = Ansicht · Zoom: Mausrad/＋－ · Tippen: Details · Gruppe unten antippen = ein-/ausblenden</span></div>' +
+			'<div class="rh-graphwrap"><svg id="rh-svg" xmlns="http://www.w3.org/2000/svg"></svg>' +
+			'<div class="rh-zoom"><button onclick="rivalHubZoom(0.8)">＋</button><button onclick="rivalHubZoom(1.25)">－</button><button onclick="rhgRefit()" title="Alles zeigen">⤢</button></div><div class="rh-tip" id="rh-tip" style="display:none"></div></div>' +
+			'<div class="rh-clusters" id="rh-clusters">' + rhgChipsHtml() + '</div><div class="rhg-panel" id="rhg-panel" style="display:' + (h.gpanel ? 'block' : 'none') + '">' + rhgPanelHtml() + '</div>';
+		if (!g.nodes.length) { document.querySelector('.rh-graphwrap').innerHTML = '<div class="rh-empty">Alle Gruppen sind ausgeblendet.</div>'; return; }
+		rhgFit(g);
+		let sv = '<defs>' + g.nodes.map(n => '<clipPath id="rhg' + n.gi + '"><circle r="21"/></clipPath>').join('') + '</defs><g id="rhg-blobs">';
+		g.gs.forEach((c, i) => { sv += '<path class="rhg-b" data-i="' + i + '" fill="' + groupColor(c.g.name) + '" stroke="' + groupColor(c.g.name) + '" stroke-width="64" stroke-linejoin="round" stroke-linecap="round" opacity="0.2"/>'; });
+		sv += '</g><g id="rhg-nodes">';
+		g.nodes.forEach(n => { sv += '<g class="rh-n" data-gi="' + n.gi + '" style="cursor:pointer"><circle r="24" fill="#222" stroke="' + (n.cs.length > 1 ? '#fff' : groupColor(n.cs[0].g.name)) + '" stroke-width="' + (n.cs.length > 1 ? 3 : 2) + '"/><image href="' + imgUrl(n.img, 'thumb') + '" x="-21" y="-21" width="42" height="42" preserveAspectRatio="xMidYMid slice" clip-path="url(#rhg' + n.gi + ')"/></g>'; });
+		sv += '</g><g id="rhg-lbls">' + g.gs.map(() => '<text class="rh-lbl rhg-lbl-small" text-anchor="middle"></text>').join('') + '</g>';
+		const svg = document.getElementById('rh-svg'); svg.innerHTML = sv;
+		const paths = svg.querySelectorAll('.rhg-b'), nels = svg.querySelectorAll('.rh-n'), lbls = svg.querySelectorAll('#rhg-lbls text');
+		g.gs.forEach((c, i) => { c.path = paths[i]; c.lbl = lbls[i]; });
+		g.nodes.forEach((n, i) => { n.el = nels[i]; });
+		svg.setAttribute('viewBox', g.vb.x + ' ' + g.vb.y + ' ' + g.vb.w + ' ' + g.vb.h);
+		rhgUpdate();
+		rhgBind();
+	}
+	function rhgRefit() { const g = rivalHub.gg; rhgFit(g); document.getElementById('rh-svg').setAttribute('viewBox', g.vb.x + ' ' + g.vb.y + ' ' + g.vb.w + ' ' + g.vb.h); }
+	function rhgBind() {
+		const h = rivalHub, g = h.gg, svg = document.getElementById('rh-svg'), tip = document.getElementById('rh-tip');
+		const setVB = () => svg.setAttribute('viewBox', g.vb.x + ' ' + g.vb.y + ' ' + g.vb.w + ' ' + g.vb.h);
+		const toWorld = ev => { const r = svg.getBoundingClientRect(); return { x: g.vb.x + (ev.clientX - r.left) / r.width * g.vb.w, y: g.vb.y + (ev.clientY - r.top) / r.height * g.vb.h }; };
+		let drag = null, moved = false;
+		svg.addEventListener('pointerdown', ev => {
+			const el = ev.target.closest('.rh-n'); moved = false;
+			svg.setPointerCapture(ev.pointerId); svg.classList.add('drag');
+			if (el) drag = { node: g.nodes[Number(el.dataset.gi)] };
+			else drag = { pan: true, sx: ev.clientX, sy: ev.clientY, vx: g.vb.x, vy: g.vb.y };
+		});
+		svg.addEventListener('pointermove', ev => {
+			if (!drag) {
+				const el = ev.target.closest && ev.target.closest('.rh-n');
+				if (el) { const n = g.nodes[Number(el.dataset.gi)]; tip.style.display = 'block'; tip.textContent = n.img.name + ' · Elo ' + Math.round(n.img.elo) + ' · ' + n.cs.map(c => c.g.name).join(' ∩ '); } else tip.style.display = 'none';
+				return;
+			}
+			moved = true;
+			if (drag.node) { const w = toWorld(ev); drag.node.x = w.x; drag.node.y = w.y; rhgUpdate(); }
+			else { const r = svg.getBoundingClientRect(); g.vb.x = drag.vx - (ev.clientX - drag.sx) / r.width * g.vb.w; g.vb.y = drag.vy - (ev.clientY - drag.sy) / r.height * g.vb.h; setVB(); }
+		});
+		const end = () => {
+			svg.classList.remove('drag');
+			if (drag && drag.node && !moved) { const id = drag.node.id; drag = null; showDetailsByID(id); return; }
+			drag = null;
+		};
+		svg.addEventListener('pointerup', end); svg.addEventListener('pointercancel', end);
+		svg.addEventListener('wheel', ev => { ev.preventDefault(); const w = toWorld(ev); rivalHubZoom(ev.deltaY > 0 ? 1.12 : 0.89, w.x, w.y); }, { passive: false });
+	}
 
 	function rivalHubEdges() {
 		const h = rivalHub, out = [];
@@ -6248,7 +6653,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		tx.oncomplete = () => { if (rivalHub !== h) return; h.sugg = null; renderRivalHub(); };
 	}
 
-	// ---- Cluster = Zusammenhangskomponenten der bestätigten Rivalen; Namen stehen als clusterName an den Bildern ----
+	// ---- Rivalen-Verbund = Zusammenhangskomponente der bestätigten Rivalen (benannte Gruppen gibt es separat in der Gruppen-Ansicht) ----
 	function rivalHubGetClusters() {
 		const h = rivalHub;
 		if (h.clusters) return h.clusters;
@@ -6257,41 +6662,11 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		edges.forEach(e => { e.forEach(id => { if (!parent.has(id)) parent.set(id, id); }); parent.set(find(e[0]), find(e[1])); });
 		const groups = new Map();
 		parent.forEach((_, id) => { const r = find(id); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(h.byId.get(id)); });
-		const list = [...groups.values()].map(m => {
-			const cnt = new Map();
-			m.forEach(im => { if (im.clusterName) cnt.set(im.clusterName, (cnt.get(im.clusterName) || 0) + 1); });
-			let name = '', best = 0; cnt.forEach((n, nm) => { if (n > best) { best = n; name = nm; } });
-			return { members: m, name: name, avg: m.reduce((s, im) => s + im.elo, 0) / m.length };
-		}).sort((a, b) => (b.members.length - a.members.length) || (b.avg - a.avg));
+		const list = [...groups.values()].map(m => ({ members: m, name: '', avg: m.reduce((s, im) => s + im.elo, 0) / m.length })).sort((a, b) => (b.members.length - a.members.length) || (b.avg - a.avg));
 		list.forEach((c, i) => { c.idx = i; c.hue = (i * 137.5 + 210) % 360; });
 		h.clusters = list; h.edges = edges;
 		return list;
 	}
-	async function rivalHubRename(ci) {
-		const h = rivalHub, c = h.clusters && h.clusters[ci];
-		if (!c) return;
-		const nm = prompt('Name für diesen Cluster (' + c.members.length + ' Bilder). Leer = Namen entfernen:', c.name || '');
-		if (nm === null) return;
-		const name = nm.trim();
-		const tx = db.transaction("images", "readwrite"), st = tx.objectStore("images");
-		for (const m of c.members) {
-			const im = await idbGet(st, m.id);
-			if (!im) continue;
-			if (name) im.clusterName = name; else delete im.clusterName;
-			st.put(im);
-		}
-		await txDone(tx);
-		c.members.forEach(m => { if (name) m.clusterName = name; else delete m.clusterName; });
-		c.name = name;
-		rivalHubRefreshLabels();
-	}
-	function rivalHubRefreshLabels() {
-		const h = rivalHub, g = h && h.graph; if (!g) return;
-		g.cls.forEach(cl => { if (cl.lbl) { cl.lbl.textContent = cl.src.name || ''; } });
-		const box = document.getElementById('rh-clusters'); if (box) box.innerHTML = rivalHubChipsHtml();
-		rivalHubPlaceAll();
-	}
-
 	// ---- Netzwerk-Graph: jeder Cluster wird für sich ausgelegt und dann zu einem Raster gepackt ----
 	const rhR = n => 15 + Math.min(14, n.deg * 2.2);
 	const rhColor = (cl, l) => 'hsl(' + Math.round(cl.src.hue) + ',70%,' + (l || 58) + '%)';
@@ -6375,11 +6750,11 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		const h = rivalHub, g = h.graph;
 		let s = g.shown.slice(0, 60).map(c => {
 			const top = c.members.slice().sort((a, b) => b.elo - a.elo).slice(0, 3).map(n => escHtml(n.name)).join(', ');
-			return '<div class="rh-cl' + (h.only === c.idx ? ' on' : '') + '" onclick="rivalHubOnly(' + c.idx + ')" title="Nur diesen Cluster zeigen / wieder alle"><b style="background:hsl(' + Math.round(c.hue) + ',70%,58%)"></b>' +
-				'<strong>' + escHtml(c.name || 'Cluster ' + (c.idx + 1)) + '</strong> · ' + c.members.length + ' Bilder · Ø Elo ' + Math.round(c.avg) +
-				' <span class="rh-ren" onclick="event.stopPropagation(); rivalHubRename(' + c.idx + ')" title="Cluster benennen">✏️</span><br><span style="color:#888">' + top + '</span></div>';
+			return '<div class="rh-cl' + (h.only === c.idx ? ' on' : '') + '" onclick="rivalHubOnly(' + c.idx + ')" title="Nur diesen Verbund zeigen / wieder alle"><b style="background:hsl(' + Math.round(c.hue) + ',70%,58%)"></b>' +
+				'<strong>Verbund ' + (c.idx + 1) + '</strong> · ' + c.members.length + ' Bilder · Ø Elo ' + Math.round(c.avg) +
+				'<br><span style="color:#888">' + top + '</span></div>';
 		}).join('');
-		if (g.shown.length > 60) s += '<div class="rh-cl" style="cursor:default;color:#888;">… und ' + (g.shown.length - 60) + ' weitere sichtbare Cluster</div>';
+		if (g.shown.length > 60) s += '<div class="rh-cl" style="cursor:default;color:#888;">… und ' + (g.shown.length - 60) + ' weitere sichtbare Verbünde</div>';
 		return s;
 	}
 	function rivalHubOnly(i) { const h = rivalHub; h.only = h.only === i ? null : i; h.graph = null; renderRivalHubGraph(); }
@@ -6395,21 +6770,21 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		const h = rivalHub, view = document.getElementById('rh-view');
 		const all = rivalHubGetClusters();
 		if (all.length === 0) {
-			view.innerHTML = '<div class="rh-empty">Noch keine Verbindungen.<br><small>Bestätige unter „Vorschläge“ ein paar Rivalen – dann entstehen hier Cluster.</small></div>';
+			view.innerHTML = '<div class="rh-empty">Noch keine Rivalen-Verbindungen.<br><small>Bestätige unter „Vorschläge“ ein paar Rivalen – dann entstehen hier Verbünde. Für größere Mengen (z. B. „Fußballerinnen“) nutze die 🫧 Gruppen.</small></div>';
 			return;
 		}
 		if (!h.graph) h.graph = rivalHubBuildGraph();
 		const g = h.graph;
 		const sizes = [2, 3, 4, 5, 8, 12];
-		view.innerHTML = '<div class="rh-bar"><label>Cluster ab <select id="rh-ms" onchange="rivalHubSetMinSize(this.value)">' + sizes.map(n => '<option value="' + n + '"' + (n === h.minSize ? ' selected' : '') + '>' + n + ' Bildern</option>').join('') + '</select></label>' +
+		view.innerHTML = '<div class="rh-bar"><label>Verbünde ab <select id="rh-ms" onchange="rivalHubSetMinSize(this.value)">' + sizes.map(n => '<option value="' + n + '"' + (n === h.minSize ? ' selected' : '') + '>' + n + ' Bildern</option>').join('') + '</select></label>' +
 			'<label><input type="checkbox" id="rh-sg" ' + (h.showSugg ? 'checked' : '') + ' onchange="rivalHubToggleSugg(this.checked)"> beste Vorschläge als gestrichelte Linien</label>' +
-			'<span>' + g.shown.length + ' Cluster · ' + g.count + ' Bilder' + (g.hidden.length ? ' · ' + g.hidden.length + ' weitere ausgeblendet' : '') + '</span>' +
+			'<span>' + g.shown.length + ' Verbünde · ' + g.count + ' Bilder' + (g.hidden.length ? ' · ' + g.hidden.length + ' weitere ausgeblendet' : '') + '</span>' +
 			(g.hidden.length ? '<button class="nav-btn" style="padding:5px 12px;" onclick="rivalHubMore()">Mehr einblenden</button>' : '') + '</div>' +
-			'<div class="rh-bar"><span>Bild ziehen = verschieben · Hintergrund ziehen = Ansicht · Zoom: Mausrad/＋－ · Tippen: Details · Cluster-Kasten anklicken = nur diesen zeigen</span></div>' +
+			'<div class="rh-bar"><span>Bild ziehen = verschieben · Hintergrund ziehen = Ansicht · Zoom: Mausrad/＋－ · Tippen: Details · Verbund-Kasten anklicken = nur diesen zeigen</span></div>' +
 			'<div class="rh-graphwrap"><svg id="rh-svg" xmlns="http://www.w3.org/2000/svg"></svg>' +
 			'<div class="rh-zoom"><button onclick="rivalHubZoom(0.8)">＋</button><button onclick="rivalHubZoom(1.25)">－</button><button onclick="rivalHubRefit()" title="Alles zeigen">⤢</button></div><div class="rh-tip" id="rh-tip" style="display:none;"></div></div>' +
 			'<div class="rh-clusters" id="rh-clusters">' + rivalHubChipsHtml() + '</div>';
-		if (!g.cls.length) { document.querySelector('.rh-graphwrap').innerHTML = '<div class="rh-empty">Kein Cluster mit dieser Mindestgröße.</div>'; return; }
+		if (!g.cls.length) { document.querySelector('.rh-graphwrap').innerHTML = '<div class="rh-empty">Kein Verbund mit dieser Mindestgröße.</div>'; return; }
 		rivalHubFit(g);
 		rivalHubDrawGraph();
 		bindRivalHubGraph();
@@ -6459,7 +6834,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		const svg = document.getElementById('rh-svg'); if (svg) svg.setAttribute('viewBox', g.vb.x + ' ' + g.vb.y + ' ' + g.vb.w + ' ' + g.vb.h);
 	}
 	function rivalHubZoom(f, cx, cy) {
-		const vb = rivalHub.graph.vb; cx = cx === undefined ? vb.x + vb.w / 2 : cx; cy = cy === undefined ? vb.y + vb.h / 2 : cy;
+		const vb = (rivalHub.view === 'groups' ? rivalHub.gg : rivalHub.graph).vb; cx = cx === undefined ? vb.x + vb.w / 2 : cx; cy = cy === undefined ? vb.y + vb.h / 2 : cy;
 		vb.x = cx - (cx - vb.x) * f; vb.y = cy - (cy - vb.y) * f; vb.w *= f; vb.h *= f;
 		document.getElementById('rh-svg').setAttribute('viewBox', vb.x + ' ' + vb.y + ' ' + vb.w + ' ' + vb.h);
 	}
@@ -6484,7 +6859,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		svg.addEventListener('pointermove', ev => {
 			if (!drag) {
 				const el = ev.target.closest && ev.target.closest('.rh-n');
-				if (el) { const n = g.nodeList[Number(el.dataset.gi)]; tip.style.display = 'block'; tip.textContent = n.img.name + ' · Elo ' + Math.round(n.img.elo) + (n.cl.src.name ? ' · ' + n.cl.src.name : ''); } else tip.style.display = 'none';
+				if (el) { const n = g.nodeList[Number(el.dataset.gi)]; tip.style.display = 'block'; tip.textContent = n.img.name + ' · Elo ' + Math.round(n.img.elo) + ''; } else tip.style.display = 'none';
 				return;
 			}
 			moved = true;
