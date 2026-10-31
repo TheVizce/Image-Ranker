@@ -6086,6 +6086,31 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		if (rc > 0) { score += rc; chips.unshift('🤝 Rivale von ' + rc + (rc === 1 ? ' Mitglied' : ' Mitgliedern')); }
 		return { score: score, chips: chips };
 	}
+	// Abgelehnte Gruppenvorschläge: img.groupNo = Liste von Gruppen-Schlüsseln
+	const groupRejected = (img, key) => Array.isArray(img.groupNo) && img.groupNo.includes(key);
+	async function setGroupNo(id, key, on) {
+		const tx = db.transaction("images", "readwrite"), st = tx.objectStore("images");
+		const im = await idbGet(st, Number(id));
+		if (!im) return;
+		const set = new Set(im.groupNo || []);
+		if (key === null) set.clear(); else if (on) set.add(key); else set.delete(key);
+		if (set.size) im.groupNo = [...set]; else delete im.groupNo;
+		st.put(im); await txDone(tx);
+		[curL, curR].forEach(c => { if (c && c.id === im.id) c.groupNo = im.groupNo; });
+		if (rivalHub && rivalHub.byId && rivalHub.byId.has(im.id)) { const o = rivalHub.byId.get(im.id); if (im.groupNo) o.groupNo = im.groupNo; else delete o.groupNo; }
+	}
+	async function groupDetailReject(id, key) { await setGroupNo(id, key, true); showDetailsByID(id); }
+	async function groupDetailUnreject(id) { await setGroupNo(id, null); showDetailsByID(id); }
+	async function rhgReject(id) {
+		const h = rivalHub; if (!h.gpanel) return;
+		await setGroupNo(id, h.gpanel, true); rhgRefreshPanel();
+	}
+	async function rhgUnrejectAll() {
+		const h = rivalHub; if (!h.gpanel) return;
+		const ids = h.images.filter(i => groupRejected(i, h.gpanel)).map(i => i.id);
+		for (const id of ids) await setGroupNo(id, h.gpanel, false);
+		rhgRefreshPanel();
+	}
 	function groupChip(common) {
 		return common.length === 1 ? '🫧 Gleiche Gruppe: ' + common[0] : '🫧 Gehört zur Schnittmenge ' + common.slice(0, 3).join(' ∩ ') + (common.length > 3 ? ' +' + (common.length - 3) : '');
 	}
@@ -6128,13 +6153,15 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			'<option value="">＋ Zu Gruppe hinzufügen…</option>' + free.map(g => '<option value="' + escHtml(g.name) + '">' + escHtml(g.name) + ' (' + g.members.length + ')</option>').join('') +
 			'<option value="__new__">✨ Neue Gruppe…</option></select>';
 		const dbn = new Map((tagDefs || []).map(d => [d.tagName, d]));
-		const sug = free.map(g => ({ g: g, f: groupFit(img, g.members, dbn) })).filter(x => x.f.score >= 0.3).sort((a, b) => b.f.score - a.f.score).slice(0, 3);
+		const sug = free.filter(g => !groupRejected(img, g.key)).map(g => ({ g: g, f: groupFit(img, g.members, dbn) })).filter(x => x.f.score >= 0.3).sort((a, b) => b.f.score - a.f.score).slice(0, 3);
 		if (sug.length) {
 			h += '<div style="margin-top:10px;color:#888;font-size:0.9em;">💡 Passt vielleicht zu:</div>' + sug.map(x =>
 				'<div style="display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap;">' + groupPill(x.g.name) +
 				'<button class="nav-btn" style="padding:2px 10px;" onclick="groupDetailAddName(' + img.id + ',' + escAttrJs(x.g.name) + ')">＋</button>' +
+				'<button class="nav-btn" style="padding:2px 10px;" title="Vorschlag ablehnen" onclick="groupDetailReject(' + img.id + ',' + escAttrJs(x.g.key) + ')">✕</button>' +
 				'<span style="color:#999;font-size:0.9em;">' + x.f.chips.slice(0, 3).map(escHtml).join(' · ') + '</span></div>').join('');
 		}
+		if ((img.groupNo || []).length) h += '<div style="margin-top:8px;"><a href="#" style="color:#888;font-size:0.85em;" onclick="groupDetailUnreject(' + img.id + ');return false;">' + img.groupNo.length + ' abgelehnte Gruppenvorschläge wieder zulassen</a></div>';
 		return h + '</div>';
 	}
 	const escAttrJs = v => escHtml(JSON.stringify(String(v)));
@@ -6384,8 +6411,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		if (!confirm('In ' + where + ' wird alles gelöscht:\n\n• ' + Math.round(conf / 2) + ' bestätigte Rivalen-Paare\n• ' + Math.round(dis / 2) + ' abgelehnte Paare\n• ' + assign + ' Gruppenzuordnungen (' + gnames.size + ' Gruppen)' + (cn ? '\n• ' + cn + ' alte Cluster-Namen' : '') + '\n\nDas lässt sich nur über ein Backup rückgängig machen. Fortfahren?')) return;
 		const tx = db.transaction("images", "readwrite"), st = tx.objectStore("images");
 		sel.forEach(i => {
-			if (!(i.rivals && i.rivals.length) && !getGroups(i).length && !i.clusterName) return;
-			i.rivals = []; delete i.groups; delete i.clusterName; st.put(i);
+			if (!(i.rivals && i.rivals.length) && !getGroups(i).length && !i.clusterName && !i.groupNo) return;
+			i.rivals = []; delete i.groups; delete i.clusterName; delete i.groupNo; st.put(i);
 		});
 		await txDone(tx);
 		rankImgMap.forEach((im, id) => { if (allTabs || im.tab === h.tab) { im.rivals = []; delete im.groups; } });
@@ -6510,12 +6537,15 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	function rhgSuggHtml(members, mk) {
 		const h = rivalHub;
 		if (members.length < 2) return members.length ? '' : '';
-		const list = h.images.filter(i => !mk.has(i.id)).map(i => ({ i: i, f: groupFit(i, members, h.defsByName) })).filter(x => x.f.score >= 0.3)
+		const nRej = h.images.filter(i => groupRejected(i, h.gpanel)).length;
+		const list = h.images.filter(i => !mk.has(i.id) && !groupRejected(i, h.gpanel)).map(i => ({ i: i, f: groupFit(i, members, h.defsByName) })).filter(x => x.f.score >= 0.3)
 			.sort((a, b) => b.f.score - a.f.score).slice(0, 10);
-		if (!list.length) return '<div style="color:#777;margin-bottom:8px;">💡 Keine Vorschläge – es fehlen gemeinsame Eigenschaften oder Rivalen mit den Mitgliedern.</div>';
-		return '<div style="color:#aaa;margin-bottom:6px;">💡 Vorschläge (nach Eigenschaften und Rivalen der Mitglieder)</div><div style="display:flex;flex-direction:column;gap:5px;margin-bottom:12px;">' +
+		const un = nRej ? ' <a href="#" style="color:#888;" onclick="rhgUnrejectAll();return false;">' + nRej + ' abgelehnte wieder zulassen</a>' : '';
+		if (!list.length) return '<div style="color:#777;margin-bottom:8px;">💡 Keine (weiteren) Vorschläge.' + un + '</div>';
+		return '<div style="color:#aaa;margin-bottom:6px;">💡 Vorschläge (nach Eigenschaften und Rivalen der Mitglieder)' + un + '</div><div style="display:flex;flex-direction:column;gap:5px;margin-bottom:12px;">' +
 			list.map(x => '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><b style="cursor:pointer;" onclick="showDetailsByID(' + x.i.id + ')">' + escHtml(x.i.name) + '</b>' +
 				'<button class="nav-btn" style="padding:2px 10px;" onclick="rhgAddId(' + x.i.id + ')">＋ hinzufügen</button>' +
+				'<button class="nav-btn" style="padding:2px 10px;" title="Vorschlag ablehnen" onclick="rhgReject(' + x.i.id + ')">✕</button>' +
 				'<span style="color:#999;">' + x.f.chips.slice(0, 3).map(escHtml).join(' · ') + '</span></div>').join('') + '</div>';
 	}
 	async function rhgAddId(id) {
