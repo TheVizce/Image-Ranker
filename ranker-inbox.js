@@ -27,6 +27,16 @@
   const ready = () => new Promise(res => { const t = setInterval(() => { if (typeof db !== 'undefined' && db && typeof refreshUI === 'function') { clearInterval(t); res(); } }, 150); });
   const all = (store) => new Promise((res, rej) => { const r = db.transaction(store).objectStore(store).getAll(); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
   const done = (tx) => new Promise((res, rej) => { tx.oncomplete = () => res(); tx.onerror = tx.onabort = () => rej(tx.error || new Error('Speichern fehlgeschlagen')); });
+  // Link zurück zum Eintrag im Babe Organizer (mit eigenem Symbol)
+  const BO_ICON = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#e5678f"/><text x="32" y="43" font-size="30" font-family="Arial,sans-serif" font-weight="700" text-anchor="middle" fill="#fff">BO</text></svg>');
+  const boLink = (boId) => location.origin + '/b-organizer/#e=' + encodeURIComponent(boId);
+  const isBoLink = (l) => l && typeof l.url === 'string' && /\/b-organizer\/#e=/.test(l.url);
+  function withBoLink(rec) {
+    const links = (Array.isArray(rec.links) ? rec.links : []).filter(l => !isBoLink(l) || l.url === boLink(rec.boId));
+    if (rec.boId && !links.some(l => l.url === boLink(rec.boId))) links.push({ url: boLink(rec.boId), icon: BO_ICON });
+    rec.links = links;
+    return rec;
+  }
   const note = (t, ms) => { try { showBusy(t); if (ms) setTimeout(() => showBusy(''), ms); } catch (e) {} };
 
   async function runJob(job) {
@@ -117,6 +127,7 @@
         rec.links = Array.isArray(rec.links) ? rec.links.slice() : [];
         if (!rec.links.some(l => l && l.url === it.profileUrl)) rec.links.push({ url: it.profileUrl, icon: null });
       }
+      withBoLink(rec);
       if (ex) { imgStore.put(rec); updated++; } else { imgStore.add(rec); added++; }
     }
     await done(tx);
@@ -161,6 +172,17 @@
     return busy;
   }
 
+  // Bereits verknüpfte Bilder ohne Link zum Babe Organizer einmalig ergänzen
+  async function addMissingBoLinks() {
+    await ready();
+    const imgs = (await all('images')).filter(i => i.boId && !(i.links || []).some(l => l && l.url === boLink(i.boId)));
+    if (!imgs.length) return;
+    const tx = db.transaction('images', 'readwrite');
+    imgs.forEach(i => tx.objectStore('images').put(withBoLink(Object.assign({}, i))));
+    await done(tx);
+    if (window.RANKER_SYNC) window.RANKER_SYNC.changed();
+  }
+
   async function openFromHash() {
     const m = location.hash.match(/^#bo=(.+)$/);
     if (!m) return;
@@ -176,5 +198,5 @@
   if (channel) channel.onmessage = ev => { if (ev.data && ev.data.type === 'job') processJobs(); };
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') processJobs(); });
   window.addEventListener('hashchange', openFromHash);
-  ready().then(() => setTimeout(() => { processJobs(); openFromHash(); }, 300));
+  ready().then(() => setTimeout(() => { processJobs().then(addMissingBoLinks).catch(e => console.warn(e)); openFromHash(); }, 300));
 })();
