@@ -27,16 +27,10 @@
   const ready = () => new Promise(res => { const t = setInterval(() => { if (typeof db !== 'undefined' && db && typeof refreshUI === 'function') { clearInterval(t); res(); } }, 150); });
   const all = (store) => new Promise((res, rej) => { const r = db.transaction(store).objectStore(store).getAll(); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
   const done = (tx) => new Promise((res, rej) => { tx.oncomplete = () => res(); tx.onerror = tx.onabort = () => rej(tx.error || new Error('Speichern fehlgeschlagen')); });
-  // Link zurück zum Eintrag im Babe Organizer (mit eigenem Symbol)
-  const BO_ICON = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#e5678f"/><text x="32" y="43" font-size="30" font-family="Arial,sans-serif" font-weight="700" text-anchor="middle" fill="#fff">BO</text></svg>');
-  const boLink = (boId) => location.origin + '/b-organizer/#e=' + encodeURIComponent(boId);
+  // Früher (kurzzeitig) als normaler Link eingetragene Verweise auf den Babe Organizer wieder entfernen –
+  // der Verweis steht stattdessen als eigener Knopf in der Detailansicht.
   const isBoLink = (l) => l && typeof l.url === 'string' && /\/b-organizer\/#e=/.test(l.url);
-  function withBoLink(rec) {
-    const links = (Array.isArray(rec.links) ? rec.links : []).filter(l => !isBoLink(l) || l.url === boLink(rec.boId));
-    if (rec.boId && !links.some(l => l.url === boLink(rec.boId))) links.push({ url: boLink(rec.boId), icon: BO_ICON });
-    rec.links = links;
-    return rec;
-  }
+  function withoutBoLink(rec) { if (Array.isArray(rec.links)) rec.links = rec.links.filter(l => !isBoLink(l)); return rec; }
   const note = (t, ms) => { try { showBusy(t); if (ms) setTimeout(() => showBusy(''), ms); } catch (e) {} };
 
   async function runJob(job) {
@@ -127,7 +121,7 @@
         rec.links = Array.isArray(rec.links) ? rec.links.slice() : [];
         if (!rec.links.some(l => l && l.url === it.profileUrl)) rec.links.push({ url: it.profileUrl, icon: null });
       }
-      withBoLink(rec);
+      withoutBoLink(rec);
       if (ex) { imgStore.put(rec); updated++; } else { imgStore.add(rec); added++; }
     }
     await done(tx);
@@ -172,13 +166,13 @@
     return busy;
   }
 
-  // Bereits verknüpfte Bilder ohne Link zum Babe Organizer einmalig ergänzen
-  async function addMissingBoLinks() {
+  // Aufräumen: Babe-Organizer-Verweise aus den Link-Listen entfernen (falls schon eingetragen)
+  async function removeBoLinks() {
     await ready();
-    const imgs = (await all('images')).filter(i => i.boId && !(i.links || []).some(l => l && l.url === boLink(i.boId)));
+    const imgs = (await all('images')).filter(i => (i.links || []).some(isBoLink));
     if (!imgs.length) return;
     const tx = db.transaction('images', 'readwrite');
-    imgs.forEach(i => tx.objectStore('images').put(withBoLink(Object.assign({}, i))));
+    imgs.forEach(i => tx.objectStore('images').put(withoutBoLink(Object.assign({}, i))));
     await done(tx);
     if (window.RANKER_SYNC) window.RANKER_SYNC.changed();
   }
@@ -195,8 +189,30 @@
     setTimeout(() => { try { showDetailsByID(im.id); } catch (e) {} }, 400);
   }
 
+  // Detailansicht: verknüpfter Babe-Organizer-Eintrag als eigener Knopf (nicht zwischen den Links des Bildes)
+  function addBoButton(id) {
+    const media = document.querySelector('#modal .dt-media');
+    if (!media || media.querySelector('.bo-link')) return;
+    db.transaction('images').objectStore('images').get(Number(id)).onsuccess = ev => {
+      const im = ev.target.result;
+      if (!im || !im.boId || media.querySelector('.bo-link')) return;
+      const a = document.createElement('a');
+      a.className = 'bo-link';
+      a.href = '/b-organizer/#e=' + encodeURIComponent(im.boId);
+      a.target = '_blank'; a.rel = 'noopener';
+      a.textContent = '🗂️ Im Babe Organizer öffnen';
+      a.style.cssText = 'display:block;margin-top:5px;width:100%;box-sizing:border-box;padding:10px;text-align:center;border-radius:8px;border:1px solid #6b3a52;background:#3a2030;color:#f3c1d6;font-weight:bold;font-size:0.85em;text-decoration:none';
+      const links = media.querySelector('img.dt-img + div');
+      if (links && links.nextSibling) media.insertBefore(a, links.nextSibling); else media.appendChild(a);
+    };
+  }
+  if (typeof window.showDetailsByID === 'function') {
+    const orig = window.showDetailsByID;
+    window.showDetailsByID = async function (id) { const r = await orig.apply(this, arguments); try { addBoButton(id); } catch (e) {} return r; };
+  }
+
   if (channel) channel.onmessage = ev => { if (ev.data && ev.data.type === 'job') processJobs(); };
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') processJobs(); });
   window.addEventListener('hashchange', openFromHash);
-  ready().then(() => setTimeout(() => { processJobs().then(addMissingBoLinks).catch(e => console.warn(e)); openFromHash(); }, 300));
+  ready().then(() => setTimeout(() => { processJobs().then(removeBoLinks).catch(e => console.warn(e)); openFromHash(); }, 300));
 })();
