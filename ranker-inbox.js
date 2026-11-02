@@ -56,9 +56,24 @@
 
     // passenden vorhandenen Eintrag suchen
     const byBo = new Map(images.filter(i => i.boId).map(i => [i.boId, i]));
+    const byId = new Map(images.map(i => [i.id, i]));
+    const normUrl = (u) => { let x = String(u || '').trim(); try { x = decodeURIComponent(x); } catch (e) {} return x.toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/[?#].*$/, '').replace(/\/+$/, '').replace(/[\s_]+/g, '_'); };
     const claimed = new Set();
     function findExisting(it) {
+      // vom Babe Organizer ausdrücklich gewähltes Bild (Abgleich geprüft)
+      if (it.linkTo != null) {
+        const t = byId.get(Number(it.linkTo));
+        if (!t || (t.boId && t.boId !== it.boId)) return null;
+        claimed.add(t.id); return t;
+      }
       let hit = byBo.get(it.boId);
+      // Sicherung: ein Bild mit genau diesem Babepedia-Profil-Link nie doppelt anlegen
+      if (!hit && it.profileUrl) {
+        const k = normUrl(it.profileUrl);
+        const same = images.filter(i => (i.links || []).some(l => l && normUrl(l.url) === k));
+        if (same.length === 1 && !same[0].boId && !claimed.has(same[0].id)) hit = same[0];
+        else if (same.length) { it._ambiguous = true; return null; }   // mehrdeutig oder schon anderweitig verknüpft: nichts automatisch tun
+      }
       if (!hit && hashes.get(it)) hit = images.find(i => !claimed.has(i.id) && !i.boId && i.hash && hashDistance(i.hash, hashes.get(it)) <= DUP_MAX_DISTANCE);
       if (!hit && it.url) hit = images.find(i => !claimed.has(i.id) && !i.boId && (i.blob === it.url || i.sourceUrl === it.url));
       if (hit) claimed.add(hit.id);
@@ -82,9 +97,11 @@
     }
     touched.forEach(d => { if (Array.isArray(d.options)) d.options.sort(tagSort); defStore.put(d); });
 
-    let added = 0, updated = 0;
+    let added = 0, updated = 0, skipped = 0;
     for (const it of items) {
       const ex = findExisting(it);
+      // nicht neu anlegen: nur verknüpfen gewünscht, gewähltes Bild fehlt, oder mehrere Bilder mit gleichem Profil-Link
+      if (!ex && (it.create === false || it.linkTo != null || it._ambiguous)) { skipped++; continue; }
       const rec = ex ? Object.assign({}, ex) : {
         tab, name: it.name || 'Ohne Namen', blob: it.blob instanceof Blob ? it.blob : (it.url || ''),
         elo: 1200, wins: 0, losses: 0, history: [1200], peak: 1200, y: 50, hash: hashes.get(it) || '', tags: {}, rivals: [], links: []
@@ -103,7 +120,7 @@
       if (ex) { imgStore.put(rec); updated++; } else { imgStore.add(rec); added++; }
     }
     await done(tx);
-    return { tab, added, updated };
+    return { tab, added, updated, skipped };
   }
 
   let busy = Promise.resolve();
@@ -128,14 +145,14 @@
           }
         }
         tdb.close();
-        const a = results.reduce((s, r) => s + r.added, 0), u = results.reduce((s, r) => s + r.updated, 0);
+        const a = results.reduce((s, r) => s + r.added, 0), u = results.reduce((s, r) => s + r.updated, 0), sk = results.reduce((s, r) => s + (r.skipped || 0), 0);
         const last = results[results.length - 1];
         if (last && last.tab !== currentTab) switchTab(last.tab); else await refreshUI();
         try { renderTabs(); } catch (e) {}
         try { ensureThumbs(); } catch (e) {}
         if (window.RANKER_SYNC) window.RANKER_SYNC.changed();
-        note(`Aus dem Babe Organizer: ${a} neu, ${u} aktualisiert${last ? ' (Reiter „' + last.tab + '“)' : ''}.`, 5000);
-        if (channel) channel.postMessage({ type: 'done', added: a, updated: u });
+        note(`Aus dem Babe Organizer: ${a} neu, ${u} verknüpft/aktualisiert${sk ? `, ${sk} übersprungen (kein eindeutiges Bild)` : ''}${last ? ' – Reiter „' + last.tab + '“' : ''}.`, 6000);
+        if (channel) channel.postMessage({ type: 'done', added: a, updated: u, skipped: sk });
       };
       // nur ein offener Ranker-Tab arbeitet die Aufträge ab
       if (navigator.locks && navigator.locks.request) await navigator.locks.request('image-ranker-inbox', work);
