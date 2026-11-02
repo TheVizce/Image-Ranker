@@ -6430,12 +6430,122 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		root.innerHTML = '<h2 style="margin-top:0;">🕸️ Rivalen-Zentrale <small style="font-size:0.5em;color:#888;">Tab: ' + escHtml(h.tab) + '</small></h2>' +
 			'<div class="rh-tabs"><button class="rh-tab' + (h.view === 'list' ? ' on' : '') + '" onclick="rivalHubView(\'list\')">💡 Vorschläge' + (h.sugg ? ' (' + h.sugg.length + (h.suggTotalCapped ? '+' : '') + ')' : '') + '</button>' +
 			'<button class="rh-tab' + (h.view === 'groups' ? ' on' : '') + '" onclick="rivalHubView(\'groups\')">🫧 Gruppen (' + groupsOfImages(h.images).size + ')</button>' +
+			(evoDexTag(h.defsByName) ? '<button class="rh-tab' + (h.view === 'evo' ? ' on' : '') + '" onclick="rivalHubView(\'evo\')">🧬 Entwicklungsreihen</button>' : '') +
 			'<button class="rh-tab' + (h.view === 'graph' ? ' on' : '') + '" onclick="rivalHubView(\'graph\')">🕸️ Rivalen-Netz (' + nCl + ' Verbünde)</button></div>' +
 			'<div id="rh-view"></div>' +
 			'<div class="rh-reset">🧹 Rivalen &amp; Gruppen komplett löschen: <button onclick="rivalHubWipe(false)">nur dieser Tab</button><button onclick="rivalHubWipe(true)">alle Tabs</button></div>';
-		if (h.view === 'list') renderRivalHubList(); else if (h.view === 'groups') renderRivalHubGroups(); else renderRivalHubGraph();
+		if (h.view === 'list') renderRivalHubList(); else if (h.view === 'groups') renderRivalHubGroups(); else if (h.view === 'evo' && evoDexTag(h.defsByName)) renderRivalHubEvo(); else renderRivalHubGraph();
 	}
 	function rivalHubView(v) { rivalHub.view = v; renderRivalHub(); }
+
+	// ===== Entwicklungsreihen (Pokémon): aus der Eigenschaft „Dex“ (Nationaldex-Nummer) und einer eingebetteten Tabelle „Dex-Nr. → entwickelt sich aus“ (Quelle: PokéAPI, Nr. 1–1025) =====
+	const EVO_PARENT_RAW = '2:1,3:2,5:4,6:5,8:7,9:8,11:10,12:11,14:13,15:14,17:16,18:17,20:19,22:21,24:23,25:172,26:25,28:27,30:29,31:30,33:32,34:33,35:173,36:35,38:37,39:174,40:39,42:41,44:43,45:44,47:46,49:48,51:50,53:52,55:54,57:56,59:58,61:60,62:61,64:63,65:64,67:66,68:67,70:69,71:70,73:72,75:74,76:75,78:77,80:79,82:81,85:84,87:86,89:88,91:90,93:92,94:93,97:96,99:98,101:100,103:102,105:104,106:236,107:236,110:109,112:111,113:440,117:116,119:118,121:120,122:439,124:238,125:239,126:240,130:129,134:133,135:133,136:133,139:138,141:140,143:446,148:147,149:148,153:152,154:153,156:155,157:156,159:158,160:159,162:161,164:163,166:165,168:167,169:42,171:170,176:175,178:177,180:179,181:180,182:44,183:298,184:183,185:438,186:61,188:187,189:188,192:191,195:194,196:133,197:133,199:79,202:360,205:204,208:95,210:209,212:123,217:216,219:218,221:220,224:223,226:458,229:228,230:117,232:231,233:137,237:236,242:113,247:246,248:247,253:252,254:253,256:255,257:256,259:258,260:259,262:261,264:263,266:265,267:266,268:265,269:268,271:270,272:271,274:273,275:274,277:276,279:278,281:280,282:281,284:283,286:285,288:287,289:288,291:290,292:290,294:293,295:294,297:296,301:300,305:304,306:305,308:307,310:309,315:406,317:316,319:318,321:320,323:322,326:325,329:328,330:329,332:331,334:333,340:339,342:341,344:343,346:345,348:347,350:349,354:353,356:355,358:433,362:361,364:363,365:364,367:366,368:366,372:371,373:372,375:374,376:375,388:387,389:388,391:390,392:391,394:393,395:394,397:396,398:397,400:399,402:401,404:403,405:404,407:315,409:408,411:410,413:412,414:412,416:415,419:418,421:420,423:422,424:190,426:425,428:427,429:200,430:198,432:431,435:434,437:436,444:443,445:444,448:447,450:449,452:451,454:453,457:456,460:459,461:215,462:82,463:108,464:112,465:114,466:125,467:126,468:176,469:193,470:133,471:133,472:207,473:221,474:233,475:281,476:299,477:356,478:361,496:495,497:496,499:498,500:499,502:501,503:502,505:504,507:506,508:507,510:509,512:511,514:513,516:515,518:517,520:519,521:520,523:522,525:524,526:525,528:527,530:529,533:532,534:533,536:535,537:536,541:540,542:541,544:543,545:544,547:546,549:548,552:551,553:552,555:554,558:557,560:559,563:562,565:564,567:566,569:568,571:570,573:572,575:574,576:575,578:577,579:578,581:580,583:582,584:583,586:585,589:588,591:590,593:592,596:595,598:597,600:599,601:600,603:602,604:603,606:605,608:607,609:608,611:610,612:611,614:613,617:616,620:619,623:622,625:624,628:627,630:629,634:633,635:634,637:636,651:650,652:651,654:653,655:654,657:656,658:657,660:659,662:661,663:662,665:664,666:665,668:667,670:669,671:670,673:672,675:674,678:677,680:679,681:680,683:682,685:684,687:686,689:688,691:690,693:692,695:694,697:696,699:698,700:133,705:704,706:705,709:708,711:710,713:712,715:714,723:722,724:723,726:725,727:726,729:728,730:729,732:731,733:732,735:734,737:736,738:737,740:739,743:742,745:744,748:747,750:749,752:751,754:753,756:755,758:757,760:759,762:761,763:762,768:767,770:769,773:772,783:782,784:783,790:789,791:790,792:790,804:803,809:808,811:810,812:811,814:813,815:814,817:816,818:817,820:819,822:821,823:822,825:824,826:825,828:827,830:829,832:831,834:833,836:835,838:837,839:838,841:840,842:840,844:843,847:846,849:848,851:850,853:852,855:854,857:856,858:857,860:859,861:860,862:264,863:52,864:222,865:83,866:122,867:562,869:868,873:872,879:878,886:885,887:886,892:891,899:234,900:123,901:217,902:550,903:215,904:211,907:906,908:907,910:909,911:910,913:912,914:913,916:915,918:917,920:919,922:921,923:922,925:924,927:926,929:928,930:929,933:932,934:933,936:935,937:935,939:938,941:940,943:942,945:944,947:946,949:948,952:951,954:953,956:955,958:957,959:958,961:960,964:963,966:965,970:969,972:971,975:974,979:57,980:194,981:203,982:206,983:625,997:996,998:997,1000:999,1011:840,1013:1012,1018:884,1019:1011';
+	let EVO_PARENT = null;
+	function evoParent() {
+		if (!EVO_PARENT) { EVO_PARENT = new Map(); EVO_PARENT_RAW.split(',').forEach(p => { const q = p.split(':'); EVO_PARENT.set(Number(q[0]), Number(q[1])); }); }
+		return EVO_PARENT;
+	}
+	function evoDexTag(defsByName) {
+		if (!defsByName) return null;
+		for (const k of defsByName.keys()) if (k.trim().toLowerCase() === 'dex') return k;
+		return null;
+	}
+	function evoAnalyze(h) {
+		const tag = evoDexTag(h.defsByName); if (!tag) return null;
+		const type = tagTypeOf(h.defsByName.get(tag)), par = evoParent();
+		const byDex = new Map(); let unknown = 0;
+		h.images.forEach(im => {
+			const v = getTagValuesAs(im, tag, type), n = v.length ? parseTagNumber(v[0]) : NaN;
+			if (!isFinite(n) || n < 1 || Math.floor(n) !== n) { unknown++; return; }
+			if (!byDex.has(n)) byDex.set(n, []); byDex.get(n).push(im);
+		});
+		const root = d => { let x = d; const seen = new Set(); while (par.has(x) && !seen.has(x)) { seen.add(x); x = par.get(x); } return x; };
+		const chains = new Map();
+		byDex.forEach((ims, d) => { const r = root(d); if (!chains.has(r)) chains.set(r, []); chains.get(r).push(d); });
+		const res = [];
+		[...chains.keys()].sort((a, b) => a - b).forEach(r => {
+			const depth = d => { let n = 0, x = d; while (par.has(x) && n < 20) { x = par.get(x); n++; } return n; };
+			const dexes = chains.get(r).sort((a, b) => (depth(a) - depth(b)) || (a - b));   // Reihenfolge der Stufen, nicht der Dex-Nummern
+			if (dexes.length < 2) return;
+			const edges = [];
+			dexes.forEach(d => {
+				let p = par.get(d);
+				while (p !== undefined && !byDex.has(p)) p = par.get(p);      // fehlt die direkte Vorstufe, zählt die nächste vorhandene
+				if (p !== undefined) byDex.get(d).forEach(a => byDex.get(p).forEach(b => edges.push([a, b])));
+			});
+			res.push({ root: r, dexes: dexes, members: dexes.flatMap(d => byDex.get(d)), edges: edges, big: dexes.length >= 4, names: dexes.map(d => byDex.get(d).map(m => m.name).join(' / ')), rootName: byDex.get(dexes[0])[0].name });
+		});
+		return { tag: tag, chains: res, unknown: unknown, total: h.images.length };
+	}
+	const evoPairKey = (a, b) => Math.min(a.id, b.id) + '_' + Math.max(a.id, b.id);
+	function evoKnown(h) {
+		const k = new Set();
+		h.images.forEach(i => (i.rivals || []).forEach(r => k.add(Math.min(i.id, r.id) + '_' + Math.max(i.id, r.id))));
+		return k;
+	}
+	function renderRivalHubEvo() {
+		const h = rivalHub, view = document.getElementById('rh-view'); if (!view) return;
+		if (!h.evo) h.evo = evoAnalyze(h);
+		if (!h.evoDone) h.evoDone = new Set();
+		const a = h.evo, known = evoKnown(h);
+		const list = a.chains.filter(c => !(c.big && h.evoDone.has(c.root)));
+		const small = list.filter(c => !c.big).map(c => ({ c: c, fresh: c.edges.filter(e => !known.has(evoPairKey(e[0], e[1]))) }));
+		const big = list.filter(c => c.big);
+		const nFresh = small.reduce((s, x) => s + x.fresh.length, 0);
+		const nm = c => c.names.map(escHtml).join(' → ');
+		let o = '<div class="rh-bar"><span>Erkannt über die Eigenschaft „' + escHtml(a.tag) + '“ (Nationaldex). ' + (a.unknown ? a.unknown + ' von ' + a.total + ' Einträgen haben keine gültige Nummer und werden übersprungen. ' : '') + 'Reihen mit 4 oder mehr Stufen werden nur als Gruppe vorgeschlagen.</span></div>';
+		o += '<div class="rh-bar"><b>' + nFresh + ' neue Rivalen-Paare</b> in ' + small.filter(x => x.fresh.length).length + ' Reihen' +
+			(nFresh ? '<button class="nav-btn" style="padding:5px 12px;" onclick="evoConfirmAll()">Alle ' + nFresh + ' bestätigen</button>' : '') + '</div>';
+		small.forEach((x, i) => {
+			o += '<div class="rhg-panel" style="margin-top:6px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;"><span style="flex:1;min-width:200px;">' + nm(x.c) + '</span>' +
+				(x.fresh.length ? '<span style="color:#aaa;">' + x.fresh.length + ' neu</span><button class="nav-btn" style="padding:3px 12px;" onclick="evoConfirmChain(' + x.c.root + ')">Bestätigen</button>' : '<span style="color:#7be0a3;">✓ bereits verbunden</span>') + '</div>';
+		});
+		if (big.length) {
+			o += '<div class="rh-bar" style="margin-top:16px;"><b>' + big.length + ' große Reihen → Gruppe vorschlagen</b></div>';
+			big.forEach(c => {
+				o += '<div class="rhg-panel" style="margin-top:6px;"><div style="margin-bottom:6px;">' + escHtml(c.members.map(m => m.name).join(', ')) + '</div>' +
+					'<input id="evo-g-' + c.root + '" value="' + escHtml(evoGroupName(h, c)) + '" style="margin-right:8px;"><button class="nav-btn" style="padding:3px 12px;" onclick="evoMakeGroup(' + c.root + ')">Gruppe anlegen</button>' +
+					'<button class="nav-btn" style="padding:3px 12px;margin-left:6px;" title="Ausblenden" onclick="evoSkip(' + c.root + ')">✕</button></div>';
+			});
+		}
+		if (!small.length && !big.length) o += '<div class="rh-empty">Keine Entwicklungsreihen gefunden. Prüfe, ob die Dex-Nummern eingetragen sind.</div>';
+		view.innerHTML = o;
+	}
+	function evoGroupName(h, c) { return c.rootName + '-Reihe'; }
+	function evoChain(root) { return rivalHub.evo.chains.find(c => c.root === root); }
+	async function evoConfirmPairs(pairs) {
+		const h = rivalHub, seen = new Set(), tx = db.transaction("images", "readwrite"), st = tx.objectStore("images");
+		let n = 0;
+		for (const [a, b] of pairs) {
+			const k = evoPairKey(a, b); if (seen.has(k)) continue; seen.add(k);
+			const x = await idbGet(st, a.id), y = await idbGet(st, b.id);
+			if (!x || !y || (x.rivals || []).some(r => r.id === y.id)) continue;
+			x.rivals = (x.rivals || []).concat({ id: y.id, status: 'confirmed' }); y.rivals = (y.rivals || []).concat({ id: x.id, status: 'confirmed' });
+			st.put(x); st.put(y); a.rivals = x.rivals; b.rivals = y.rivals; n++;
+		}
+		await txDone(tx);
+		[curL, curR].forEach(c => { if (!c) return; const f = h.byId.get(c.id); if (f) c.rivals = f.rivals; });
+		h.sugg = null; h.clusters = null; h.graph = null;
+		return n;
+	}
+	async function evoConfirmChain(root) {
+		const c = evoChain(root); if (!c) return;
+		await evoConfirmPairs(c.edges); renderRivalHub();
+	}
+	async function evoConfirmAll() {
+		const h = rivalHub, known = evoKnown(h), pairs = [];
+		h.evo.chains.filter(c => !c.big).forEach(c => c.edges.forEach(e => { if (!known.has(evoPairKey(e[0], e[1]))) pairs.push(e); }));
+		if (!pairs.length || !confirm(pairs.length + ' Entwicklungs-Paare als Rivalen bestätigen?')) return;
+		await evoConfirmPairs(pairs); renderRivalHub();
+	}
+	async function evoMakeGroup(root) {
+		const h = rivalHub, c = evoChain(root), inp = document.getElementById('evo-g-' + root); if (!c || !inp) return;
+		let name = inp.value.trim(); if (!name) return;
+		const ex = rhgGroups().find(g => g.key === groupKey(name)); if (ex) name = ex.name;
+		await editGroups(c.members.map(m => m.id), im => { im.groups = getGroups(im).concat(name); });
+		h.evoDone.add(root); h.sugg = null; h.gg = null; renderRivalHub();
+	}
+	function evoSkip(root) { rivalHub.evoDone.add(root); renderRivalHubEvo(); }
 
 	// Alles auf null: Rivalen (bestätigt/abgelehnt), Gruppen und alte Cluster-Namen – nur nach Bestätigung
 	async function rivalHubWipe(allTabs) {
