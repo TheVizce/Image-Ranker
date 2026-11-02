@@ -1197,7 +1197,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
             const json = k => { try { return JSON.parse(raw(k)); } catch (e) { return undefined; } };
             const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
             const num = v => v !== null && v !== '' && isFinite(Number(v));
-            const SETTING_KEYS = ['matchupMode', 'focusMatches', 'eloWindow', 'shareOutside', 'shareRival', 'shareGroup', 'rivalGroupWeight', 'uncertainBelow', 'newbieBoost', 'tabAccent', 'tagOrder', 'imageFit', 'dailyGoals', 'tagWeights'];
+            const SETTING_KEYS = ['matchupMode', 'focusMatches', 'eloWindow', 'shareOutside', 'shareRival', 'shareGroup', 'rivalGroupWeight', 'groupRules', 'uncertainBelow', 'newbieBoost', 'tabAccent', 'tagOrder', 'imageFit', 'dailyGoals', 'tagWeights'];
             const checks = {
                 tabs: () => { const v = json('tabs'); return Array.isArray(v) && v.length > 0 && v.every(t => typeof t === 'string' && t); },
                 settings: () => { const v = json('settings'); return isObj(v) && Object.keys(v).length > 0 && Object.keys(v).every(k => SETTING_KEYS.includes(k)); },
@@ -1267,6 +1267,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		uncertainBelow: 10,       // Einträge mit weniger Duellen gelten als „noch unsicher“ (0 = nie)
 		newbieBoost: false,       // true: Duelle, an denen ein unsicherer Eintrag beteiligt ist, zählen mit K=48 statt 32
 		dailyGoals: {},           // Tagesziel pro Tab: { "<Tab>": Anzahl } (fehlt der Tab = automatisch berechnet)
+		groupRules: {},           // Gruppen-Voraussetzungen: { "<Tab>": { "<Gruppen-Schlüssel>": { conds: [Filterbedingungen] } } }
 		tagWeights: {}            // Rivalen-Vorschläge: { "<Tab>": { "<Tag>": Gewicht } } (leer = Standardgewicht, 0 = ignorieren)
 	};
 
@@ -1304,6 +1305,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			uncertainBelow: Math.round(num(r.uncertainBelow, 0, 500, d.uncertainBelow)),
 			newbieBoost: r.newbieBoost === undefined ? !!d.newbieBoost : (r.newbieBoost === true || r.newbieBoost === 'true'),
 			tagWeights: {},
+			groupRules: {},
 			dailyGoals: {},
 			tagOrder: {},
 			imageFit: {},
@@ -1327,6 +1329,21 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		});
 		if (out.shareGroup + out.shareRival > 1) out.shareGroup = 1 - out.shareRival;
 		if (out.shareOutside + out.shareRival + out.shareGroup > 1) out.shareOutside = 1 - out.shareRival - out.shareGroup;
+		const gr = (r.groupRules && typeof r.groupRules === 'object') ? r.groupRules : (d.groupRules || {});
+		Object.keys(gr).forEach(tab => {
+			const t = gr[tab]; if (!t || typeof t !== 'object') return;
+			Object.keys(t).forEach(k => {
+				const f = t[k]; if (!f || !Array.isArray(f.conds)) return;
+				const conds = f.conds.filter(c => c && typeof c.tag === 'string').map(c => {
+					const o = { tag: c.tag };
+					if (Array.isArray(c.values)) o.values = c.values.map(String);
+					if (c.min !== null && c.min !== '' && c.min !== undefined && isFinite(Number(c.min))) o.min = Number(c.min);
+					if (c.max !== null && c.max !== '' && c.max !== undefined && isFinite(Number(c.max))) o.max = Number(c.max);
+					return o;
+				});
+				if (conds.length) { if (!out.groupRules[tab]) out.groupRules[tab] = {}; out.groupRules[tab][k] = { conds: conds }; }
+			});
+		});
 		const src = (r.tagWeights && typeof r.tagWeights === 'object') ? r.tagWeights : d.tagWeights;
 		Object.keys(src).forEach(tab => {
 			const tw = src[tab];
@@ -4295,7 +4312,9 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 
 	function resetSettings() {
 		if (!confirm("Alle Einstellungen (inkl. Tag-Gewichtungen) auf Standard zurücksetzen?")) return;
+		const keepRules = settings.groupRules;
 		settings = sanitizeSettings(null);
+		settings.groupRules = keepRules || {};   // Voraussetzungen sind Daten, keine Einstellungen
 		saveSettings();
 		openSettings();
 	}
@@ -5047,17 +5066,34 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		return '<span class="grp-pill" style="--gc:' + groupColor(name) + ';">' + escHtml(name) + (extra || '') + '</span>';
 	}
 	// Ändert die Gruppen mehrerer Bilder: fn(img) ändert img.groups; speichert und hält Caches aktuell
-	async function editGroups(ids, fn) {
+	const groupRule = (tab, key) => { const t = settings.groupRules && settings.groupRules[tab]; const f = t && t[key]; return (f && filterIsActive(f)) ? f : null; };
+	function setGroupRule(tab, key, filter) {
+		if (!settings.groupRules) settings.groupRules = {};
+		const act = filter ? filter.conds.filter(condActive).map(c => JSON.parse(JSON.stringify(c))) : [];
+		if (act.length) { if (!settings.groupRules[tab]) settings.groupRules[tab] = {}; settings.groupRules[tab][key] = { conds: act }; }
+		else if (settings.groupRules[tab]) { delete settings.groupRules[tab][key]; if (!Object.keys(settings.groupRules[tab]).length) delete settings.groupRules[tab]; }
+		saveSettings();
+	}
+	async function editGroups(ids, fn, silent) {
+		const defsBy = new Map();
+		for (const t of Object.keys(settings.groupRules || {})) defsBy.set(t, await getDefsByName(t));   // vor der Transaktion laden
+		const blocked = [];
 		const tx = db.transaction("images", "readwrite");
 		const store = tx.objectStore("images");
 		const done = [];
 		for (const id of ids) {
 			const im = await idbGet(store, Number(id));
 			if (!im) continue;
-			const before = JSON.stringify(getGroups(im));
+			const before = JSON.stringify(getGroups(im)), prevKeys = new Set(getGroups(im).map(groupKey));
 			fn(im);
 			const seen = new Set(), out = [];
-			getGroups(im).forEach(g => { const t = String(g).trim(); if (t && !seen.has(groupKey(t))) { seen.add(groupKey(t)); out.push(t); } });
+			getGroups(im).forEach(g => {
+				const t = String(g).trim();
+				if (!t || seen.has(groupKey(t))) return;
+				const rule = prevKeys.has(groupKey(t)) ? null : groupRule(im.tab, groupKey(t));
+				if (rule && defsBy.get(im.tab) && !imageMatchesFilter(im, rule, defsBy.get(im.tab))) { blocked.push(im.name + ' → ' + t); return; }
+				seen.add(groupKey(t)); out.push(t);
+			});
 			if (out.length) im.groups = out; else delete im.groups;
 			if (JSON.stringify(getGroups(im)) !== before) { store.put(im); done.push(im); }
 		}
@@ -5068,6 +5104,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			if (rivalHub && rivalHub.byId && rivalHub.byId.has(im.id)) rivalHub.byId.get(im.id).groups = im.groups;
 		});
 		if (done.length) { renderGroupBadges('left', curL); renderGroupBadges('right', curR); }
+		if (blocked.length && !silent) alert('Die Voraussetzung der Gruppe ist nicht erfüllt, nicht hinzugefügt:\n' + blocked.slice(0, 8).join('\n') + (blocked.length > 8 ? '\n… und ' + (blocked.length - 8) + ' weitere' : ''));
 		return done.length;
 	}
 	// Alle Gruppennamen eines Tabs aus der DB (kanonische Schreibweise = erste gefundene)
@@ -5662,7 +5699,9 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	function saveMatchFilters() {
 		try { lsSet('matchFilters', JSON.stringify(matchFilters)); } catch (e) { console.warn("Filter konnte nicht gespeichert werden.", e); }
 	}
+	let grpEditFilter = { conds: [] }, grpEditKey = null;   // Voraussetzung der Gruppe, die im Panel bearbeitet wird
 	function getFilter(ctx, tab) {
+		if (ctx === 'grp') return grpEditFilter;
 		const store = ctx === 'match' ? matchFilters : listFilters;
 		if (!store[tab] || !Array.isArray(store[tab].conds)) store[tab] = { conds: [] };
 		return store[tab];
@@ -5729,7 +5768,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		const mount = document.getElementById('flt-' + ctx + '-mount');
 		if (!mount) return;
 		const tab = currentTab;
-		const { defs, defsByName, images } = await loadFilterContext(tab);
+		let { defs, defsByName, images } = await loadFilterContext(tab);
+		if (ctx === 'grp') { defs = defs.filter(d => d.tagName !== GROUP_TAG); defsByName = new Map(defs.map(d => [d.tagName, d])); }
 		const filter = getFilter(ctx, tab);
 		filter.conds = filter.conds.filter(c => defsByName.has(c.tag)); // Bedingungen gelöschter Eigenschaften entfernen
 		const used = new Set(filter.conds.map(c => c.tag));
@@ -5784,12 +5824,14 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	}
 
 	async function fltChanged(ctx) {
+		if (ctx === 'grp') { await rhgRuleChanged(); return; }
 		if (ctx === 'match') { saveMatchFilters(); matchFilterDirty = true; updateFilterUI(null); }
 		else await applyListFilter();
 		await renderFilterEditor(ctx);
 	}
 	async function fltAdd(ctx) {
-		const { defs } = await loadFilterContext(currentTab);
+		let { defs } = await loadFilterContext(currentTab);
+		if (ctx === 'grp') defs = defs.filter(d => d.tagName !== GROUP_TAG);
 		const filter = getFilter(ctx, currentTab);
 		const used = new Set(filter.conds.map(c => c.tag));
 		const next = defs.find(d => !used.has(d.tagName));
@@ -6148,11 +6190,11 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			const n = (all.find(x => x.key === groupKey(g)) || { members: [] }).members.length;
 			return groupPill(g, ' <small style="color:#999;">' + n + '</small><button title="Aus Gruppe entfernen" onclick="groupDetailRemove(' + img.id + ',' + escAttrJs(g) + ')">✕</button>');
 		}).join('') + '</div>';
-		const free = all.filter(g => !mineKeys.has(g.key));
+		const dbn = new Map((tagDefs || []).map(d => [d.tagName, d]));
+		const free = all.filter(g => !mineKeys.has(g.key) && (!groupRule(img.tab, g.key) || imageMatchesFilter(img, groupRule(img.tab, g.key), dbn)));
 		h += '<select id="grp-add-sel" onchange="groupDetailAdd(' + img.id + ',' + escAttrJs(img.tab) + ',this)" style="background:#1a1a1a; border:1px solid #333; color:#eee; border-radius:4px; padding:5px 8px; max-width:100%;">' +
 			'<option value="">＋ Zu Gruppe hinzufügen…</option>' + free.map(g => '<option value="' + escHtml(g.name) + '">' + escHtml(g.name) + ' (' + g.members.length + ')</option>').join('') +
 			'<option value="__new__">✨ Neue Gruppe…</option></select>';
-		const dbn = new Map((tagDefs || []).map(d => [d.tagName, d]));
 		const sug = free.filter(g => !groupRejected(img, g.key)).map(g => ({ g: g, f: groupFit(img, g.members, dbn) })).filter(x => x.f.score >= 0.3).sort((a, b) => b.f.score - a.f.score).slice(0, 3);
 		if (sug.length) {
 			h += '<div style="margin-top:10px;color:#888;font-size:0.9em;">💡 Passt vielleicht zu:</div>' + sug.map(x =>
@@ -6415,6 +6457,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			i.rivals = []; delete i.groups; delete i.clusterName; delete i.groupNo; st.put(i);
 		});
 		await txDone(tx);
+		if (allTabs) settings.groupRules = {}; else if (settings.groupRules) delete settings.groupRules[h.tab];
+		saveSettings();
 		rankImgMap.forEach((im, id) => { if (allTabs || im.tab === h.tab) { im.rivals = []; delete im.groups; } });
 		closeModal();
 		alert('Zurückgesetzt: ' + Math.round(conf / 2) + ' Rivalen-Paare, ' + Math.round(dis / 2) + ' abgelehnte Paare und ' + assign + ' Gruppenzuordnungen gelöscht.');
@@ -6518,7 +6562,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	function rhgChipsHtml() {
 		const h = rivalHub;
 		return h.glist.map((g, i) => '<div class="rh-cl' + (h.ghide.has(g.key) ? ' off' : '') + (h.gpanel === g.key ? ' on' : '') + '" onclick="rhgToggle(' + i + ')" title="Ein-/ausblenden"><b style="background:' + groupColor(g.name) + '"></b>' +
-			'<strong>' + escHtml(g.name) + '</strong> · ' + g.members.length +
+			(groupRule(h.tab, g.key) ? '🔒 ' : '') + '<strong>' + escHtml(g.name) + '</strong> · ' + g.members.length +
 			' <span class="rh-ren" onclick="event.stopPropagation(); rhgPanel(' + i + ')" title="Mitglieder verwalten">👥</span>' +
 			'<span class="rh-ren" onclick="event.stopPropagation(); rhgRename(' + i + ')" title="Umbenennen">✏️</span>' +
 			'<span class="rh-ren" onclick="event.stopPropagation(); rhgDelete(' + i + ')" title="Gruppe löschen">🗑</span></div>').join('');
@@ -6530,15 +6574,65 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		const mk = new Set(members.map(m => m.id));
 		const opts = h.images.filter(i => !mk.has(i.id)).map(i => '<option value="' + escHtml(i.name) + '"></option>').join('');
 		return '<div style="margin-bottom:8px;"><b>' + groupPill(name) + '</b> – ' + members.length + ' Mitglieder <button class="nav-btn" style="padding:2px 10px;margin-left:8px;" onclick="rivalHub.gpanel=null;rhgRefreshPanel()">Schließen</button></div>' +
+			'<details id="rhg-rule" style="margin-bottom:10px;"' + ((h.ruleOpen || groupRule(h.tab, h.gpanel)) ? ' open' : '') + ' ontoggle="rivalHub.ruleOpen=this.open"><summary style="cursor:pointer;color:#aaa;">' + rhgRuleSummary() + '</summary>' +
+			'<div style="color:#777;margin:6px 0;">Nur Einträge, die alle Bedingungen erfüllen, dürfen in diese Gruppe.</div><div id="flt-grp-mount"></div><div id="rhg-rulestat">' + rhgRuleStatHtml() + '</div></details>' +
 			'<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">' + (members.length ? members.slice().sort((a, b) => b.elo - a.elo).map(m => '<span class="grp-pill" style="--gc:' + groupColor(name) + ';">' + escHtml(m.name) + '<button title="Aus Gruppe entfernen" onclick="rhgRemove(' + m.id + ')">✕</button></span>').join('') : '<i style="color:#777">Noch keine Mitglieder.</i>') + '</div>' +
 			rhgSuggHtml(g ? g.members : [], mk) +
 			'<input id="rhg-add" list="rhg-dl" placeholder="Eintrag hinzufügen (Name)…" onkeydown="if(event.key===\'Enter\')rhgAdd()"><datalist id="rhg-dl">' + opts + '</datalist> <button class="nav-btn" style="padding:4px 12px;" onclick="rhgAdd()">Hinzufügen</button>';
+	}
+	function rhgRuleSummary() {
+		const h = rivalHub, rule = groupRule(h.tab, h.gpanel);
+		return '🔒 Voraussetzung: ' + (rule ? escHtml(describeFilter(rule)) : 'keine');
+	}
+	function rhgRuleStatHtml() {
+		const h = rivalHub, rule = groupRule(h.tab, h.gpanel); if (!rule) return '';
+		const g = (h.glist || []).find(x => x.key === h.gpanel), members = g ? g.members : [], mk = new Set(members.map(m => m.id));
+		const bad = members.filter(m => !imageMatchesFilter(m, rule, h.defsByName));
+		const cand = h.images.filter(i => !mk.has(i.id) && imageMatchesFilter(i, rule, h.defsByName));
+		let o = '';
+		if (bad.length) o += '<div style="margin-top:8px;color:#e8a33d;">⚠️ ' + bad.length + ' Mitglied(er) erfüllen die Voraussetzung nicht: ' + escHtml(bad.slice(0, 5).map(m => m.name).join(', ')) + (bad.length > 5 ? ' …' : '') + ' <button class="nav-btn" style="padding:2px 10px;" onclick="rhgRuleRemoveBad()">Entfernen</button></div>';
+		if (cand.length) o += '<div style="margin-top:8px;color:#aaa;">' + cand.length + ' passende Einträge sind noch nicht in der Gruppe. <button class="nav-btn" style="padding:2px 10px;" onclick="rhgRuleAddAll()">Alle hinzufügen</button></div>';
+		return o;
+	}
+	async function rhgRuleChanged() {
+		const h = rivalHub; if (!h || !h.gpanel) return;
+		setGroupRule(h.tab, h.gpanel, grpEditFilter);
+		const st = document.getElementById('rhg-rulestat'); if (st) st.innerHTML = rhgRuleStatHtml();
+		const sm = document.querySelector('#rhg-rule summary'); if (sm) sm.innerHTML = rhgRuleSummary();
+		const box = document.getElementById('rh-clusters'); if (box) box.innerHTML = rhgChipsHtml();
+		await renderFilterEditor('grp');
+	}
+	async function rhgRuleRemoveBad() {
+		const h = rivalHub, rule = groupRule(h.tab, h.gpanel), key = h.gpanel; if (!rule) return;
+		const g = h.glist.find(x => x.key === key); if (!g) return;
+		const bad = g.members.filter(m => !imageMatchesFilter(m, rule, h.defsByName));
+		if (!bad.length || !confirm(bad.length + ' Einträge aus der Gruppe „' + g.name + '“ entfernen?')) return;
+		await editGroups(bad.map(m => m.id), im => { im.groups = getGroups(im).filter(x => groupKey(x) !== key); }, true);
+		h.gg = null; renderRivalHubGroups();
+	}
+	async function rhgRuleAddAll() {
+		const h = rivalHub, rule = groupRule(h.tab, h.gpanel), key = h.gpanel; if (!rule) return;
+		const g = h.glist.find(x => x.key === key), name = g ? g.name : h.gpanelName, mk = new Set(g ? g.members.map(m => m.id) : []);
+		const cand = h.images.filter(i => !mk.has(i.id) && imageMatchesFilter(i, rule, h.defsByName));
+		if (!cand.length || !confirm(cand.length + ' passende Einträge zur Gruppe „' + name + '“ hinzufügen?')) return;
+		await editGroups(cand.map(m => m.id), im => { im.groups = getGroups(im).concat(name); });
+		h.gg = null; renderRivalHubGroups();
+	}
+	function rhgLoadRule() {
+		const h = rivalHub; if (!h || !h.gpanel) return;
+		if (grpEditKey !== h.tab + '|' + h.gpanel) {
+			const r = groupRule(h.tab, h.gpanel);
+			grpEditFilter = r ? JSON.parse(JSON.stringify(r)) : { conds: [] };
+			grpEditKey = h.tab + '|' + h.gpanel;
+		}
+		renderFilterEditor('grp');
 	}
 	function rhgSuggHtml(members, mk) {
 		const h = rivalHub;
 		if (members.length < 2) return members.length ? '' : '';
 		const nRej = h.images.filter(i => groupRejected(i, h.gpanel)).length;
-		const list = h.images.filter(i => !mk.has(i.id) && !groupRejected(i, h.gpanel)).map(i => ({ i: i, f: groupFit(i, members, h.defsByName) })).filter(x => x.f.score >= 0.3)
+		const rule = groupRule(h.tab, h.gpanel);
+		const list = h.images.filter(i => !mk.has(i.id) && !groupRejected(i, h.gpanel) && (!rule || imageMatchesFilter(i, rule, h.defsByName))).map(i => ({ i: i, f: groupFit(i, members, h.defsByName) })).filter(x => x.f.score >= 0.3)
 			.sort((a, b) => b.f.score - a.f.score).slice(0, 10);
 		const un = nRej ? ' <a href="#" style="color:#888;" onclick="rhgUnrejectAll();return false;">' + nRej + ' abgelehnte wieder zulassen</a>' : '';
 		if (!list.length) return '<div style="color:#777;margin-bottom:8px;">💡 Keine (weiteren) Vorschläge.' + un + '</div>';
@@ -6558,6 +6652,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		const el = document.getElementById('rhg-panel'); if (!el) return;
 		const h = rivalHub; h.glist = rhgGroups();
 		el.innerHTML = rhgPanelHtml(); el.style.display = h.gpanel ? 'block' : 'none';
+		rhgLoadRule();
 		const box = document.getElementById('rh-clusters'); if (box) box.innerHTML = rhgChipsHtml();
 	}
 	function rhgChanged() { const h = rivalHub; h.sugg = null; h.gg = null; renderRivalHub(); }
@@ -6592,7 +6687,9 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		const other = h.glist.find(x => x.key === groupKey(nm) && x.key !== g.key);
 		if (other && !confirm('Es gibt schon eine Gruppe „' + other.name + '“. Beide zusammenführen?')) return;
 		const target = other ? other.name : nm;
+		const oldRule = groupRule(h.tab, g.key);
 		await editGroups(g.members.map(m => m.id), im => { im.groups = getGroups(im).map(x => groupKey(x) === g.key ? target : x); });
+		if (groupKey(target) !== g.key) { setGroupRule(h.tab, g.key, null); if (oldRule && !other) setGroupRule(h.tab, groupKey(target), oldRule); }
 		if (h.gpanel === g.key) { h.gpanel = groupKey(target); h.gpanelName = target; }
 		if (h.ghide.has(g.key)) { h.ghide.delete(g.key); h.ghide.add(groupKey(target)); }
 		rhgChanged();
@@ -6601,6 +6698,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		const h = rivalHub, g = h.glist[i]; if (!g) return;
 		if (!confirm('Gruppe „' + g.name + '“ löschen? Die ' + g.members.length + ' Einträge bleiben erhalten, sie sind nur nicht mehr in dieser Gruppe.')) return;
 		await editGroups(g.members.map(m => m.id), im => { im.groups = getGroups(im).filter(x => groupKey(x) !== g.key); });
+		setGroupRule(h.tab, g.key, null);
 		if (h.gpanel === g.key) h.gpanel = null;
 		rhgChanged();
 	}
@@ -6623,6 +6721,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			'<div class="rh-zoom"><button onclick="rivalHubZoom(0.8)">＋</button><button onclick="rivalHubZoom(1.25)">－</button><button onclick="rhgRefit()" title="Alles zeigen">⤢</button></div><div class="rh-tip" id="rh-tip" style="display:none"></div></div>' +
 			'<div class="rh-clusters" id="rh-clusters">' + rhgChipsHtml() + '</div><div class="rhg-panel" id="rhg-panel" style="display:' + (h.gpanel ? 'block' : 'none') + '">' + rhgPanelHtml() + '</div>';
 		if (!g.nodes.length) { document.querySelector('.rh-graphwrap').innerHTML = '<div class="rh-empty">Alle Gruppen sind ausgeblendet.</div>'; return; }
+		rhgLoadRule();
 		rhgFit(g);
 		let sv = '<defs>' + g.nodes.map(n => '<clipPath id="rhg' + n.gi + '"><circle r="21"/></clipPath>').join('') + '</defs><g id="rhg-blobs">';
 		g.gs.forEach((c, i) => { sv += '<path class="rhg-b" data-i="' + i + '" fill="' + groupColor(c.g.name) + '" stroke="' + groupColor(c.g.name) + '" stroke-width="64" stroke-linejoin="round" stroke-linecap="round" opacity="0.2"/>'; });
