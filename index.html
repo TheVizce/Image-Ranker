@@ -4882,35 +4882,53 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			lsSet('linkQueue', JSON.stringify(o));
 		} catch (e) {}
 	}
+	const lkInp = 'background:#1a1a1a;border:1px solid #333;color:#eee;border-radius:5px;padding:4px 6px;font-size:0.9em;';
+	function lkRowHtml(i) {
+		const r = lk.rows[i], inp = lkInp;
+		let st;
+		if (r.mode === 'skip') st = '<span style="color:#888;">bereits vorhanden: ' + escHtml(r.dup) + '</span>';
+		else if (r.mode === 'link') st = '<select onchange="lkMode(' + i + ',this.value)" style="' + inp + '"><option value="link" selected>Link zu „' + escHtml(r.matchId.name) + '“ ergänzen</option><option value="new">Als neuen Eintrag</option></select>';
+		else st = r.file ? '<span style="color:#7be0a3;">bereit</span>' : '<span style="color:#e8a33d;">Bild fehlt</span>';
+		if (r.clubNew && r.mode !== 'skip') st += '<div style="color:#e8a33d;font-size:0.85em;">Verein neu – bitte prüfen</div>';
+		const field = (k, list) => '<td><input value="' + escHtml(r[k]) + '"' + (list ? ' list="' + list + '"' : '') + ' onchange="lkEdit(' + i + ',\'' + k + '\',this.value)" style="' + inp + 'width:100%;min-width:90px;"></td>';
+		return '<tr data-i="' + i + '" class="lk-row' + (lk.sel === i ? ' lk-sel' : '') + '" onmousedown="lkSelect(' + i + ')" onfocusin="lkSelect(' + i + ')" ondragover="event.preventDefault()" ondrop="lkDrop(event,' + i + ')" style="border-top:1px solid #222;">' +
+			'<td><div onclick="lkPick(' + i + ')" title="Bild wählen" style="width:48px;height:60px;border:1px dashed #555;border-radius:6px;cursor:pointer;background:#111 center/cover;display:flex;align-items:center;justify-content:center;color:#666;' + (r.preview ? 'background-image:url(' + r.preview + ');border-style:solid;' : '') + '">' + (r.preview ? '' : '＋') + '</div></td>' +
+			'<td><input value="' + escHtml(r.name) + '" onchange="lkEdit(' + i + ',\'name\',this.value)" style="' + inp + 'width:100%;min-width:170px;"></td>' +
+			field('club', 'lk-ver') + field('season') + field('art', 'lk-art') + (lk.t.wett ? field('wett', 'lk-comp') : '') +
+			'<td>' + st + '</td><td><span style="cursor:pointer;color:#ff6b6b;" title="Aus der Liste entfernen" onclick="lkRemove(' + i + ')">✕</span></td></tr>';
+	}
+	function lkFooterHtml() {
+		const ready = lk.rows.filter(r => (r.mode === 'new' && r.file) || r.mode === 'link').length;
+		return '<button onclick="lkCommit()" ' + (ready ? '' : 'disabled') + '>✔ ' + ready + ' übernehmen</button><button class="secondary" onclick="closeModal()">Schließen</button>' +
+			'<span style="color:#777;font-size:0.85em;">Zeilen ohne Bild bleiben in der Liste (Bilder gehen beim Schließen verloren, die Links nicht).</span>';
+	}
+	// Nur die geänderte Zeile neu zeichnen, damit Eingaben und Fokus in den anderen Zeilen erhalten bleiben
+	function lkRefreshRow(i) {
+		const tr = document.querySelector('#lk-root tr[data-i="' + i + '"]');
+		if (!tr) { lkRender(); return; }
+		tr.outerHTML = lkRowHtml(i);
+		const f = document.getElementById('lk-footer'); if (f) f.innerHTML = lkFooterHtml();
+		lkSave();
+	}
+	function lkSelect(i) {
+		if (lk.sel === i) return;
+		lk.sel = i;
+		document.querySelectorAll('#lk-root tr.lk-row').forEach(tr => tr.classList.toggle('lk-sel', Number(tr.dataset.i) === i));
+	}
 	function lkRender() {
 		const root = document.getElementById('lk-root'); if (!root) return;
-		const inp = 'background:#1a1a1a;border:1px solid #333;color:#eee;border-radius:5px;padding:4px 6px;font-size:0.9em;';
 		const dl = (id, arr) => '<datalist id="' + id + '">' + arr.map(o => '<option value="' + escHtml(o) + '">').join('') + '</datalist>';
 		const comps = [...new Set(lk.images.map(im => lk.val(im, lk.t.wett)).filter(Boolean))];
-		let h = '<h2 style="margin-top:0;">🔗 Links importieren <small style="font-size:0.5em;color:#888;">Tab: ' + escHtml(lk.tab) + '</small></h2>' +
-			'<div style="color:#999;font-size:0.85em;margin-bottom:8px;">Füge Seiten-Links ein, am besten als „Titel + Adresse“ (kopierter Link mit Text). Es wird nichts aus dem Internet geladen. Das Bild bringst du selbst mit: Zeile anklicken und <b>Strg+V</b>, Datei hineinziehen oder das Feld anklicken.</div>' +
-			'<textarea id="lk-text" rows="3" placeholder="Links hier einfügen …" style="width:100%;' + inp + '"></textarea>' +
+		let h = '<style>#lk-root tr.lk-sel{background:rgba(120,160,255,0.12);} #lk-root tr.lk-sel td:first-child{box-shadow:inset 3px 0 0 var(--accent,#3b82f6);}</style><h2 style="margin-top:0;">🔗 Links importieren <small style="font-size:0.5em;color:#888;">Tab: ' + escHtml(lk.tab) + '</small></h2>' +
+			'<div style="color:#999;font-size:0.85em;margin-bottom:8px;">Füge Seiten-Links ein, am besten als „Titel + Adresse“ (kopierter Link mit Text). Es wird nichts aus dem Internet geladen. Das Bild bringst du selbst mit: Zeile anklicken (sie wird blau markiert) und <b>Strg+V</b>, Datei auf die Zeile ziehen oder das Bildfeld anklicken.</div>' +
+			'<textarea id="lk-text" rows="3" placeholder="Links hier einfügen …" style="width:100%;' + lkInp + '"></textarea>' +
 			'<div style="margin:6px 0 12px;"><button class="nav-btn" onclick="lkAddText()">Zur Liste hinzufügen</button></div>';
 		if (!lk.rows.length) h += '<div class="rh-empty">Noch keine Links in der Liste.</div>';
 		else {
 			h += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:0.88em;"><thead><tr style="color:#888;text-align:left;"><th>Bild</th><th>Name</th><th>' + escHtml(lk.t.verein.tagName) + '</th><th>' + escHtml(lk.t.saison.tagName) + '</th><th>' + escHtml(lk.t.art.tagName) + '</th>' + (lk.t.wett ? '<th>' + escHtml(lk.t.wett.tagName) + '</th>' : '') + '<th>Status</th><th></th></tr></thead><tbody>';
-			lk.rows.forEach((r, i) => {
-				let st;
-				if (r.mode === 'skip') st = '<span style="color:#888;">bereits vorhanden: ' + escHtml(r.dup) + '</span>';
-				else if (r.mode === 'link') st = '<select onchange="lkMode(' + i + ',this.value)" style="' + inp + '"><option value="link" selected>Link zu „' + escHtml(r.matchId.name) + '“ ergänzen</option><option value="new">Als neuen Eintrag</option></select>';
-				else st = r.file ? '<span style="color:#7be0a3;">bereit</span>' : '<span style="color:#e8a33d;">Bild fehlt</span>';
-				if (r.clubNew && r.mode !== 'skip') st += '<div style="color:#e8a33d;font-size:0.85em;">Verein neu – bitte prüfen</div>';
-				const field = (k, list) => '<td><input value="' + escHtml(r[k]) + '"' + (list ? ' list="' + list + '"' : '') + ' onchange="lkEdit(' + i + ',\'' + k + '\',this.value)" style="' + inp + 'width:100%;min-width:90px;"></td>';
-				h += '<tr data-i="' + i + '" onclick="lk.sel=' + i + '" ondragover="event.preventDefault()" ondrop="lkDrop(event,' + i + ')" style="border-top:1px solid #222;' + (lk.sel === i ? 'background:rgba(255,255,255,0.04);' : '') + '">' +
-					'<td><div onclick="lkPick(' + i + ')" title="Bild wählen" style="width:48px;height:60px;border:1px dashed #555;border-radius:6px;cursor:pointer;background:#111 center/cover;display:flex;align-items:center;justify-content:center;color:#666;' + (r.preview ? 'background-image:url(' + r.preview + ');border-style:solid;' : '') + '">' + (r.preview ? '' : '＋') + '</div></td>' +
-					'<td><input value="' + escHtml(r.name) + '" onchange="lkEdit(' + i + ',\'name\',this.value)" style="' + inp + 'width:100%;min-width:170px;"></td>' +
-					field('club', 'lk-ver') + field('season') + field('art', 'lk-art') + (lk.t.wett ? field('wett', 'lk-comp') : '') +
-					'<td>' + st + '</td><td><span style="cursor:pointer;color:#ff6b6b;" title="Aus der Liste entfernen" onclick="lkRemove(' + i + ')">✕</span></td></tr>';
-			});
+			lk.rows.forEach((r, i) => { h += lkRowHtml(i); });
 			h += '</tbody></table></div>' + dl('lk-ver', lk.verOpts) + dl('lk-art', lk.artOpts) + dl('lk-comp', comps);
-			const ready = lk.rows.filter(r => (r.mode === 'new' && r.file) || r.mode === 'link').length;
-			h += '<div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;"><button onclick="lkCommit()" ' + (ready ? '' : 'disabled') + '>✔ ' + ready + ' übernehmen</button><button class="secondary" onclick="closeModal()">Schließen</button>' +
-				'<span style="color:#777;font-size:0.85em;">Zeilen ohne Bild bleiben in der Liste (Bilder gehen beim Schließen verloren, die Links nicht).</span></div>';
+			h += '<div id="lk-footer" style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">' + lkFooterHtml() + '</div>';
 		}
 		h += '<input type="file" id="lk-file" accept="image/*" style="display:none" onchange="lkFile(this.files[0])">';
 		root.innerHTML = h;
@@ -4928,15 +4946,15 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		r[k] = String(v).trim();
 		if (k === 'name') r.nameEdited = true;
 		else { if (k === 'season') r.season = lkSeason(r.season); if (!r.nameEdited) r.name = lkName(r); if (k === 'club' && lk.compOf.get(lkAscii(r.club)) && !r.wett) r.wett = lk.compOf.get(lkAscii(r.club)); lkMatch(r); }
-		lkRender();
+		if (k === 'name') lkSave(); else lkRefreshRow(i);
 	}
-	function lkMode(i, v) { lk.rows[i].mode = v; lkRender(); }
+	function lkMode(i, v) { lk.rows[i].mode = v; lkRefreshRow(i); }
 	function lkRemove(i) { lk.rows.splice(i, 1); if (lk.sel >= lk.rows.length) lk.sel = 0; lkRender(); }
-	function lkPick(i) { lk.sel = i; document.getElementById('lk-file').click(); }
+	function lkPick(i) { lkSelect(i); document.getElementById('lk-file').click(); }
 	function lkSetFile(i, f) {
 		const r = lk.rows[i]; if (!r || !f || !/^image\//.test(f.type)) return;
 		if (r.preview) URL.revokeObjectURL(r.preview);
-		r.file = f; r.preview = URL.createObjectURL(f); lkRender();
+		r.file = f; r.preview = URL.createObjectURL(f); lkRefreshRow(i);
 	}
 	function lkFile(f) { lkSetFile(lk.sel, f); const e = document.getElementById('lk-file'); if (e) e.value = ''; }
 	function lkDrop(ev, i) { ev.preventDefault(); const f = ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files[0]; if (f) lkSetFile(i, f); }
