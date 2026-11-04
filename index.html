@@ -1045,6 +1045,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 <div id="controls">
     <button onclick="document.getElementById('file-input').click()">📁 Add Bilder</button>
     <input type="file" id="file-input" multiple accept="image/*" style="display:none" onchange="importImages(this.files)">
+    <button class="nav-btn" id="links-btn" style="display:none" onclick="openLinkImport()" title="Seiten-Links einfügen: Name, Verein, Saison und Art werden aus dem Titel bzw. der Adresse abgeleitet">🔗 Links</button>
     <button onclick="openFullRanking()">🏆 Liste</button>
     <button onclick="openStats()">📊 Statistik</button>
 	<button class="nav-btn" onclick="openMatchupStudio()">⚔️ Matchup Studio</button>
@@ -1441,6 +1442,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
         applyTabAccent();
         updateUndoButton();
         renderTabs();
+        updateLinkBtn();
         await updateRanking();
         loadMatchup();
 		updateFocusUI()
@@ -4400,11 +4402,38 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		const gnames = [...groupsOfImages([...rankImgMap.values()]).values()].map(g => g.name).sort((a, b) => a.localeCompare(b, 'de'));
 		h += '<div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:8px;"><b>🫧 Gruppe</b><select id="bulk-grp"><option value="">– Gruppe wählen –</option>' +
 			gnames.map(n => '<option value="' + escHtml(n) + '">' + escHtml(n) + '</option>').join('') + '<option value="__new__">✨ Neue Gruppe…</option></select>' +
-			'<button onclick="bulkGroup(true)">Zur Gruppe</button><button class="secondary" onclick="bulkGroup(false)">Aus Gruppe</button></div>';
+			'<button onclick="bulkGroup(true)">Zur Gruppe</button><button class="secondary" onclick="bulkGroup(false)">Aus Gruppe</button>' +
+			'<span style="margin-left:14px;"></span><button class="secondary" onclick="bulkNames()" title="Namen der ausgewählten Einträge aus ihren Eigenschaften zusammensetzen">🏷️ Namen aus Eigenschaften…</button></div>';
 		const keepG = bar.dataset.grp;
 		bar.innerHTML = h;
 		if (keepG) { const g = document.getElementById('bulk-grp'); if (g) g.value = keepG; }
 		if (rankTagDefs.length) bulkTagChanged();
+	}
+	async function bulkNames() {
+		if (bulkSel.size === 0) return;
+		const names = rankTagDefs.map(d => d.tagName);
+		const find = n => names.find(x => lkAscii(x) === n);
+		const std = ['verein', 'saison', 'art'].map(find);
+		const def = (std.every(Boolean) ? std : names.slice(0, 3)).map(n => '{' + n + '}').join(' ');
+		const tpl = prompt('Namensschema – Eigenschaften in {geschweiften Klammern}.\nVorhanden: ' + names.join(', ') + '\nFehlt bei einem Eintrag ein Wert, bleibt sein Name unverändert.', def);
+		if (!tpl) return;
+		const get = (im, tag) => { const d = rankTagDefs.find(x => x.tagName === tag); return d ? (getTagValues(im, d)[0] || '') : ''; };
+		const plan = [];
+		let skipped = 0;
+		[...bulkSel].forEach(id => {
+			const im = rankImgMap.get(Number(id)); if (!im) return;
+			let miss = false;
+			const nm = tpl.replace(/\{([^}]+)\}/g, (m, t) => { const v = get(im, t.trim()); if (!v) miss = true; return v; }).replace(/\s+/g, ' ').trim();
+			if (miss || !nm) { skipped++; return; }
+			if (nm !== im.name) plan.push({ id: im.id, from: im.name, to: nm });
+		});
+		if (!plan.length) { alert('Nichts zu ändern.' + (skipped ? ' (' + skipped + ' Einträge ohne vollständige Werte übersprungen)' : '')); return; }
+		if (!confirm(plan.length + ' Namen ändern' + (skipped ? ' (' + skipped + ' übersprungen, da Werte fehlen)' : '') + '?\n\n' + plan.slice(0, 4).map(p => p.from + '\n  → ' + p.to).join('\n'))) return;
+		const tx = db.transaction("images", "readwrite"), st = tx.objectStore("images");
+		for (const p of plan) { const im = await idbGet(st, p.id); if (im) { im.name = p.to; st.put(im); } }
+		await txDone(tx);
+		plan.forEach(p => { const im = rankImgMap.get(p.id); if (im) im.name = p.to; [curL, curR].forEach(c => { if (c && c.id === p.id) c.name = p.to; }); });
+		openFullRanking();
 	}
 	async function bulkGroup(add) {
 		const sel = document.getElementById('bulk-grp');
@@ -4750,6 +4779,212 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		const tx = db.transaction("images", "readwrite");
 		for (let f of toAdd) tx.objectStore("images").add({ tab: currentTab, name: f.name.split('.')[0], blob: f, elo: 1200, wins: 0, losses: 0, history: [1200], peak: 1200, y: 50, hash: hashes.get(f) || '' });
 		tx.oncomplete = () => { document.getElementById('file-input').value = ''; refreshUI(); ensureThumbs(); };
+	}
+
+	// ===================== LINK-IMPORT (z. B. Trikots) =====================
+	// Seiten-Links einfügen (optional mit Titel, z. B. aus „[Titel](Adresse)“). Es wird nichts aus dem Internet geladen:
+	// Name, Verein, Saison und Art werden aus Titel bzw. Adresse abgeleitet. Das Bild bringst du selbst mit (einfügen, hineinziehen, wählen).
+	const lkAscii = s => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ß/g, 'ss').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+	let lk = null;
+	async function lkTagNames(tab) {
+		const defs = await getTagDefinitionsForTab(tab), by = k => defs.find(d => lkAscii(d.tagName) === k);
+		return { defs: defs, verein: by('verein'), saison: by('saison'), art: by('art'), wett: by('wettbewerb') || by('liga') };
+	}
+	async function updateLinkBtn() {
+		const b = document.getElementById('links-btn'); if (!b) return;
+		try { const t = await lkTagNames(currentTab); b.style.display = (t.verein && t.saison && t.art) ? '' : 'none'; } catch (e) { b.style.display = 'none'; }
+	}
+	function lkParse(text) {
+		const out = [], seen = new Set(); let pending = '';
+		const add = (title, url) => { url = url.replace(/[)\].,;]+$/, ''); if (seen.has(url)) return; seen.add(url); out.push({ title: (title || '').trim(), url: url }); };
+		String(text).split(/\r?\n/).forEach(line => {
+			line = line.trim(); if (!line) return;
+			const md = [...line.matchAll(/\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g)];
+			if (md.length) { md.forEach(m => add(m[1], m[2])); pending = ''; return; }
+			const um = line.match(/https?:\/\/\S+/);
+			if (um) { const t = line.replace(um[0], '').trim().replace(/^[-–:|\s]+|[-–:|\s]+$/g, ''); add(t || pending, um[0]); pending = ''; }
+			else pending = line;
+		});
+		return out;
+	}
+	const lkTitleCase = s => s.split('-').map(w => /^(fc|sc|sv|vfl|vfb|tsg|rb|fsv|as|ac|ssc|cf|fk|bsc|rc|us|og)$/.test(w) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1)).join(' ').replace(/^1 FC /, '1. FC ');
+	function lkSeason(s) { const m = String(s).match(/^(\d{4})(?:[-\/](\d{2,4}))?$/); return m ? (m[2] ? m[1] + '/' + m[2].slice(-2) : m[1]) : s; }
+	function lkArt(txt, opts) {
+		let a = lkAscii(txt).replace(/trikot/g, '').replace(/-+/g, '-').replace(/^-|-$/g, '');
+		const map = { heim: 'Heim', auswarts: 'Auswärts', drittes: 'Drittes', viertes: 'Viertes', fuenftes: 'Fünftes', sonder: 'Sonder' };
+		const one = x => map[x] || (x ? x.charAt(0).toUpperCase() + x.slice(1) : '');
+		let out;
+		if (a.startsWith('tw-')) out = 'TW ' + one(a.slice(3)); else out = one(a);
+		const hit = (opts || []).find(o => lkAscii(o) === lkAscii(out));
+		return hit || out;
+	}
+	function lkFields(item, ctx) {
+		const id = (item.url.match(/-(\d+)\/?(?:[?#].*)?$/) || [])[1] || '';
+		const slug = item.url.split(/[?#]/)[0].replace(/\/+$/, '').split('/').pop() || '';
+		let club = '', season = '', artTxt = '', clubNew = false;
+		const t = item.title.replace(/\s*[-–|]\s*Football Kit Archive\s*$/i, '').trim();
+		let m = t && t.match(/^(.*?)\s+(\d{4}(?:[-\/]\d{2,4})?)\s+(.+)$/);
+		if (m) { club = m[1].trim(); season = m[2]; artTxt = m[3]; }
+		else {
+			const mm = slug.replace(/-\d+$/, '').match(/^(.*?)-(\d{4}(?:-\d{2,4})?)-(.+)$/);
+			if (mm) {
+				season = mm[2]; artTxt = mm[3];
+				const hit = ctx.verOpts.find(o => lkAscii(o) === mm[1]);
+				if (hit) club = hit; else { club = lkTitleCase(mm[1]); clubNew = true; }
+			}
+		}
+		const verHit = ctx.verOpts.find(o => lkAscii(o) === lkAscii(club));
+		if (verHit) club = verHit; else if (club && m) clubNew = !ctx.verOpts.length ? false : true;
+		season = lkSeason(season.replace(/-/g, '/'));
+		const art = lkArt(artTxt, ctx.artOpts);
+		const wett = ctx.compOf.get(lkAscii(club)) || '';
+		return { id: id, club: club, season: season, art: art, wett: wett, clubNew: clubNew, ok: !!(club && season && art) };
+	}
+	function lkName(r) { return [r.club, r.season, r.art].filter(Boolean).join(' '); }
+	async function openLinkImport() {
+		const tab = currentTab, t = await lkTagNames(tab);
+		if (!(t.verein && t.saison && t.art)) { alert('Dieser Tab hat nicht die Eigenschaften Verein, Saison und Art.'); return; }
+		const images = (await idbGetAll(db.transaction("images").objectStore("images"))).filter(i => i.tab === tab);
+		const val = (im, d) => d ? (getTagValues(im, d)[0] || '') : '';
+		const compCount = new Map();
+		images.forEach(im => { const c = val(im, t.wett), v = lkAscii(val(im, t.verein)); if (c && v) { const k = v + '|' + c; compCount.set(k, (compCount.get(k) || 0) + 1); } });
+		const compOf = new Map();
+		[...compCount.entries()].sort((a, b) => b[1] - a[1]).forEach(([k]) => { const [v, c] = k.split('|'); if (!compOf.has(v)) compOf.set(v, c); });
+		let q = []; try { const o = JSON.parse(lsGet('linkQueue')); if (o && Array.isArray(o[tab])) q = o[tab]; } catch (e) {}
+		lk = { tab: tab, t: t, images: images, val: val, compOf: compOf, verOpts: (t.verein.options || []).slice(), artOpts: (t.art.options || []).slice(), rows: [], sel: 0 };
+		q.forEach(it => lkAddRow(it));
+		showModal('<div id="lk-root"></div>');
+		document.getElementById('modal').classList.add('list-mode');
+		lkRender();
+	}
+	function lkAddRow(item) {
+		const f = lkFields(item, lk);
+		const row = { url: item.url, title: item.title, id: f.id, club: f.club, season: f.season, art: f.art, wett: f.wett, clubNew: f.clubNew, name: '', nameEdited: false, file: null, preview: '', mode: 'new', matchId: null };
+		row.name = lkName(row);
+		lkMatch(row);
+		lk.rows.push(row);
+	}
+	function lkMatch(r) {
+		const t = lk.t, key = x => lkAscii(x.club) + '|' + x.season + '|' + lkAscii(x.art);
+		r.dup = false; r.matchId = null;
+		lk.images.forEach(im => {
+			const links = (im.links || []).map(l => l.url);
+			if (r.id && links.some(u => new RegExp('-' + r.id + '/?(?:[?#].*)?$').test(u))) r.dup = im.name;
+			else if (!r.dup && !r.matchId && key({ club: lk.val(im, t.verein), season: lk.val(im, t.saison), art: lk.val(im, t.art) }) === key(r) && !links.length) r.matchId = im;
+		});
+		r.mode = r.dup ? 'skip' : (r.matchId ? 'link' : 'new');
+	}
+	function lkSave() {
+		try {
+			const o = JSON.parse(lsGet('linkQueue') || '{}') || {};
+			o[lk.tab] = lk.rows.map(r => ({ url: r.url, title: r.title }));
+			if (!o[lk.tab].length) delete o[lk.tab];
+			lsSet('linkQueue', JSON.stringify(o));
+		} catch (e) {}
+	}
+	function lkRender() {
+		const root = document.getElementById('lk-root'); if (!root) return;
+		const inp = 'background:#1a1a1a;border:1px solid #333;color:#eee;border-radius:5px;padding:4px 6px;font-size:0.9em;';
+		const dl = (id, arr) => '<datalist id="' + id + '">' + arr.map(o => '<option value="' + escHtml(o) + '">').join('') + '</datalist>';
+		const comps = [...new Set(lk.images.map(im => lk.val(im, lk.t.wett)).filter(Boolean))];
+		let h = '<h2 style="margin-top:0;">🔗 Links importieren <small style="font-size:0.5em;color:#888;">Tab: ' + escHtml(lk.tab) + '</small></h2>' +
+			'<div style="color:#999;font-size:0.85em;margin-bottom:8px;">Füge Seiten-Links ein, am besten als „Titel + Adresse“ (kopierter Link mit Text). Es wird nichts aus dem Internet geladen. Das Bild bringst du selbst mit: Zeile anklicken und <b>Strg+V</b>, Datei hineinziehen oder das Feld anklicken.</div>' +
+			'<textarea id="lk-text" rows="3" placeholder="Links hier einfügen …" style="width:100%;' + inp + '"></textarea>' +
+			'<div style="margin:6px 0 12px;"><button class="nav-btn" onclick="lkAddText()">Zur Liste hinzufügen</button></div>';
+		if (!lk.rows.length) h += '<div class="rh-empty">Noch keine Links in der Liste.</div>';
+		else {
+			h += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:0.88em;"><thead><tr style="color:#888;text-align:left;"><th>Bild</th><th>Name</th><th>' + escHtml(lk.t.verein.tagName) + '</th><th>' + escHtml(lk.t.saison.tagName) + '</th><th>' + escHtml(lk.t.art.tagName) + '</th>' + (lk.t.wett ? '<th>' + escHtml(lk.t.wett.tagName) + '</th>' : '') + '<th>Status</th><th></th></tr></thead><tbody>';
+			lk.rows.forEach((r, i) => {
+				let st;
+				if (r.mode === 'skip') st = '<span style="color:#888;">bereits vorhanden: ' + escHtml(r.dup) + '</span>';
+				else if (r.mode === 'link') st = '<select onchange="lkMode(' + i + ',this.value)" style="' + inp + '"><option value="link" selected>Link zu „' + escHtml(r.matchId.name) + '“ ergänzen</option><option value="new">Als neuen Eintrag</option></select>';
+				else st = r.file ? '<span style="color:#7be0a3;">bereit</span>' : '<span style="color:#e8a33d;">Bild fehlt</span>';
+				if (r.clubNew && r.mode !== 'skip') st += '<div style="color:#e8a33d;font-size:0.85em;">Verein neu – bitte prüfen</div>';
+				const field = (k, list) => '<td><input value="' + escHtml(r[k]) + '"' + (list ? ' list="' + list + '"' : '') + ' onchange="lkEdit(' + i + ',\'' + k + '\',this.value)" style="' + inp + 'width:100%;min-width:90px;"></td>';
+				h += '<tr data-i="' + i + '" onclick="lk.sel=' + i + '" ondragover="event.preventDefault()" ondrop="lkDrop(event,' + i + ')" style="border-top:1px solid #222;' + (lk.sel === i ? 'background:rgba(255,255,255,0.04);' : '') + '">' +
+					'<td><div onclick="lkPick(' + i + ')" title="Bild wählen" style="width:48px;height:60px;border:1px dashed #555;border-radius:6px;cursor:pointer;background:#111 center/cover;display:flex;align-items:center;justify-content:center;color:#666;' + (r.preview ? 'background-image:url(' + r.preview + ');border-style:solid;' : '') + '">' + (r.preview ? '' : '＋') + '</div></td>' +
+					'<td><input value="' + escHtml(r.name) + '" onchange="lkEdit(' + i + ',\'name\',this.value)" style="' + inp + 'width:100%;min-width:170px;"></td>' +
+					field('club', 'lk-ver') + field('season') + field('art', 'lk-art') + (lk.t.wett ? field('wett', 'lk-comp') : '') +
+					'<td>' + st + '</td><td><span style="cursor:pointer;color:#ff6b6b;" title="Aus der Liste entfernen" onclick="lkRemove(' + i + ')">✕</span></td></tr>';
+			});
+			h += '</tbody></table></div>' + dl('lk-ver', lk.verOpts) + dl('lk-art', lk.artOpts) + dl('lk-comp', comps);
+			const ready = lk.rows.filter(r => (r.mode === 'new' && r.file) || r.mode === 'link').length;
+			h += '<div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;"><button onclick="lkCommit()" ' + (ready ? '' : 'disabled') + '>✔ ' + ready + ' übernehmen</button><button class="secondary" onclick="closeModal()">Schließen</button>' +
+				'<span style="color:#777;font-size:0.85em;">Zeilen ohne Bild bleiben in der Liste (Bilder gehen beim Schließen verloren, die Links nicht).</span></div>';
+		}
+		h += '<input type="file" id="lk-file" accept="image/*" style="display:none" onchange="lkFile(this.files[0])">';
+		root.innerHTML = h;
+		lkSave();
+	}
+	function lkAddText() {
+		const ta = document.getElementById('lk-text'), items = lkParse(ta ? ta.value : '');
+		const have = new Set(lk.rows.map(r => r.url));
+		items.forEach(it => { if (!have.has(it.url)) lkAddRow(it); });
+		if (!items.length && ta && ta.value.trim()) alert('Keine Links gefunden.');
+		lkRender();
+	}
+	function lkEdit(i, k, v) {
+		const r = lk.rows[i]; if (!r) return;
+		r[k] = String(v).trim();
+		if (k === 'name') r.nameEdited = true;
+		else { if (k === 'season') r.season = lkSeason(r.season); if (!r.nameEdited) r.name = lkName(r); if (k === 'club' && lk.compOf.get(lkAscii(r.club)) && !r.wett) r.wett = lk.compOf.get(lkAscii(r.club)); lkMatch(r); }
+		lkRender();
+	}
+	function lkMode(i, v) { lk.rows[i].mode = v; lkRender(); }
+	function lkRemove(i) { lk.rows.splice(i, 1); if (lk.sel >= lk.rows.length) lk.sel = 0; lkRender(); }
+	function lkPick(i) { lk.sel = i; document.getElementById('lk-file').click(); }
+	function lkSetFile(i, f) {
+		const r = lk.rows[i]; if (!r || !f || !/^image\//.test(f.type)) return;
+		if (r.preview) URL.revokeObjectURL(r.preview);
+		r.file = f; r.preview = URL.createObjectURL(f); lkRender();
+	}
+	function lkFile(f) { lkSetFile(lk.sel, f); const e = document.getElementById('lk-file'); if (e) e.value = ''; }
+	function lkDrop(ev, i) { ev.preventDefault(); const f = ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files[0]; if (f) lkSetFile(i, f); }
+	document.addEventListener('paste', ev => {
+		if (!lk || !document.getElementById('lk-root') || (ev.target && ev.target.tagName === 'TEXTAREA')) return;
+		const it = [...(ev.clipboardData ? ev.clipboardData.items : [])].find(x => x.type && x.type.startsWith('image/'));
+		if (!it) return;
+		let i = lk.sel; if (!lk.rows[i] || lk.rows[i].file) { const n = lk.rows.findIndex(r => !r.file && r.mode === 'new'); if (n >= 0) i = n; }
+		lkSetFile(i, it.getAsFile()); ev.preventDefault();
+	});
+	async function lkCommit() {
+		const todo = lk.rows.filter(r => (r.mode === 'new' && r.file) || r.mode === 'link');
+		if (!todo.length) return;
+		showBusy('Übernehme …');
+		const t = lk.t;
+		const hashes = new Map();
+		const known = lk.images.filter(i => i.hash).map(i => ({ name: i.name, hash: i.hash }));
+		const dups = [];
+		for (const r of todo) if (r.mode === 'new') {
+			const h = await computeImageHash(r.file); hashes.set(r, h || '');
+			if (h) { const hit = known.find(x => hashDistance(x.hash, h) <= DUP_MAX_DISTANCE); if (hit) dups.push(r.name + '  ≈  „' + hit.name + '“'); else known.push({ name: r.name, hash: h }); }
+		}
+		showBusy('');
+		let skipDup = false;
+		if (dups.length) skipDup = !confirm(dups.length + ' Bild(er) sehen bereits vorhandenen ähnlich:\n\n' + dups.slice(0, 6).join('\n') + '\n\nOK = trotzdem hinzufügen\nAbbrechen = diese überspringen');
+		const dupNames = new Set(dups.map(d => d.split('  ≈')[0]));
+		const defTx = db.transaction("tagDefinitions", "readwrite"), dst = defTx.objectStore("tagDefinitions");
+		const addOpt = async (def, v) => { if (!def || !v) return; const cur = await idbGet(dst, def.id); if (!cur) return; const o = Array.isArray(cur.options) ? cur.options : []; if (!o.some(x => tagKey(x) === tagKey(v))) { cur.options = o.concat(v).sort(tagSort); dst.put(cur); } };
+		for (const r of todo) { await addOpt(t.verein, r.club); await addOpt(t.saison, r.season); await addOpt(t.art, r.art); await addOpt(t.wett, r.wett); }
+		await txDone(defTx);
+		const tx = db.transaction("images", "readwrite"), st = tx.objectStore("images");
+		const done = new Set(); let nNew = 0, nLink = 0;
+		for (const r of todo) {
+			if (r.mode === 'link') {
+				const im = await idbGet(st, r.matchId.id); if (!im) continue;
+				im.links = (im.links || []).concat({ url: r.url, icon: null });
+				st.put(im); nLink++; done.add(r); continue;
+			}
+			if (skipDup && dupNames.has(r.name)) continue;
+			const im = { tab: lk.tab, name: r.name, blob: r.file, elo: 1200, wins: 0, losses: 0, history: [1200], peak: 1200, y: 50, hash: hashes.get(r) || '', tags: {}, links: [{ url: r.url, icon: null }] };
+			[[t.verein, r.club], [t.saison, r.season], [t.art, r.art], [t.wett, r.wett]].forEach(([d, v]) => { if (d && v) setTagValuesAs(im, d.tagName, tagTypeOf(d), [v]); });
+			st.add(im); nNew++; done.add(r);
+		}
+		await txDone(tx);
+		lk.rows = lk.rows.filter(r => !done.has(r));
+		lkSave();
+		alert(nNew + ' neue Einträge angelegt, bei ' + nLink + ' vorhandenen den Link ergänzt.');
+		closeModal(); refreshUI(); ensureThumbs();
 	}
 
 	// ===================== DATENPFLEGE =====================
