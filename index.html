@@ -4837,8 +4837,23 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		if (verHit) club = verHit; else if (club && m) clubNew = !ctx.verOpts.length ? false : true;
 		season = lkSeason(season.replace(/-/g, '/'));
 		const art = lkArt(artTxt, ctx.artOpts);
-		const wett = ctx.compOf.get(lkAscii(club)) || '';
-		return { id: id, club: club, season: season, art: art, wett: wett, clubNew: clubNew, ok: !!(club && season && art) };
+		const w = lkComp(club, season);
+		return { id: id, club: club, season: season, art: art, wett: w.v, wettGuess: w.guess, clubNew: clubNew, ok: !!(club && season && art) };
+	}
+	// Wettbewerb ableiten: gleicher Verein in gleicher Saison = sicher; sonst Wettbewerb der jüngsten bekannten Saison = Schätzung
+	function lkComp(club, season) {
+		const v = lkAscii(club), ex = lk.compOf.exact.get(v + '|' + season);
+		if (ex) return { v: ex, guess: false };
+		const la = lk.compOf.latest.get(v);
+		return la ? { v: la, guess: true } : { v: '', guess: false };
+	}
+	function lkBulkComp(onlyGuess) {
+		const el = document.getElementById('lk-bulk'), v = el ? el.value.trim() : '';
+		if (!v) { alert('Bitte erst einen Wettbewerb eingeben oder wählen.'); return; }
+		let n = 0;
+		lk.rows.forEach(r => { if (r.mode === 'skip') return; if (onlyGuess && r.wett && !r.wettGuess) return; r.wett = v; r.wettGuess = false; r.wettManual = true; n++; });
+		lkRender();
+		const info = document.getElementById('lk-bulk-info'); if (info) info.textContent = n + ' Zeilen gesetzt.';
 	}
 	function lkName(r) { return [r.club, r.season, r.art].filter(Boolean).join(' '); }
 	async function openLinkImport() {
@@ -4846,10 +4861,16 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		if (!(t.verein && t.saison && t.art)) { alert('Dieser Tab hat nicht die Eigenschaften Verein, Saison und Art.'); return; }
 		const images = (await idbGetAll(db.transaction("images").objectStore("images"))).filter(i => i.tab === tab);
 		const val = (im, d) => d ? (getTagValues(im, d)[0] || '') : '';
-		const compCount = new Map();
-		images.forEach(im => { const c = val(im, t.wett), v = lkAscii(val(im, t.verein)); if (c && v) { const k = v + '|' + c; compCount.set(k, (compCount.get(k) || 0) + 1); } });
-		const compOf = new Map();
-		[...compCount.entries()].sort((a, b) => b[1] - a[1]).forEach(([k]) => { const [v, c] = k.split('|'); if (!compOf.has(v)) compOf.set(v, c); });
+		// Wettbewerb je Verein+Saison (sicher) und je Verein nach der jüngsten bekannten Saison (nur geschätzt: Auf-/Abstieg)
+		const cnt = new Map(), latest = new Map();
+		images.forEach(im => {
+			const c = val(im, t.wett), v = lkAscii(val(im, t.verein)), se = val(im, t.saison);
+			if (!c || !v) return;
+			const k = v + '|' + se + '|' + c; cnt.set(k, (cnt.get(k) || 0) + 1);
+			const l = latest.get(v); if (!l || se > l.se) latest.set(v, { se: se, c: c });
+		});
+		const compOf = { exact: new Map(), latest: new Map([...latest].map(([v, o]) => [v, o.c])) };
+		[...cnt.entries()].sort((a, b) => b[1] - a[1]).forEach(([k]) => { const [v, se, c] = k.split('|'); if (!compOf.exact.has(v + '|' + se)) compOf.exact.set(v + '|' + se, c); });
 		let q = []; try { const o = JSON.parse(lsGet('linkQueue')); if (o && Array.isArray(o[tab])) q = o[tab]; } catch (e) {}
 		lk = { tab: tab, t: t, images: images, val: val, compOf: compOf, verOpts: (t.verein.options || []).slice(), artOpts: (t.art.options || []).slice(), rows: [], sel: 0 };
 		q.forEach(it => lkAddRow(it));
@@ -4859,7 +4880,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	}
 	function lkAddRow(item) {
 		const f = lkFields(item, lk);
-		const row = { url: item.url, title: item.title, id: f.id, club: f.club, season: f.season, art: f.art, wett: f.wett, clubNew: f.clubNew, name: '', nameEdited: false, file: null, preview: '', mode: 'new', matchId: null };
+		const row = { url: item.url, title: item.title, id: f.id, club: f.club, season: f.season, art: f.art, wett: f.wett, wettGuess: f.wettGuess, wettManual: false, clubNew: f.clubNew, name: '', nameEdited: false, file: null, preview: '', mode: 'new', matchId: null };
 		row.name = lkName(row);
 		lkMatch(row);
 		lk.rows.push(row);
@@ -4890,7 +4911,9 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		else if (r.mode === 'link') st = '<select onchange="lkMode(' + i + ',this.value)" style="' + inp + '"><option value="link" selected>Link zu „' + escHtml(r.matchId.name) + '“ ergänzen</option><option value="new">Als neuen Eintrag</option></select>';
 		else st = r.file ? '<span style="color:#7be0a3;">bereit</span>' : '<span style="color:#e8a33d;">Bild fehlt</span>';
 		if (r.clubNew && r.mode !== 'skip') st += '<div style="color:#e8a33d;font-size:0.85em;">Verein neu – bitte prüfen</div>';
-		const field = (k, list) => '<td><input value="' + escHtml(r[k]) + '"' + (list ? ' list="' + list + '"' : '') + ' onchange="lkEdit(' + i + ',\'' + k + '\',this.value)" style="' + inp + 'width:100%;min-width:90px;"></td>';
+		if (r.wettGuess && r.mode !== 'skip') st += '<div style="color:#e8a33d;font-size:0.85em;">Wettbewerb geschätzt – prüfen</div>';
+		const guess = k => k === 'wett' && r.wettGuess;
+		const field = (k, list) => '<td><input value="' + escHtml(r[k]) + '"' + (list ? ' list="' + list + '"' : '') + (guess(k) ? ' title="Geschätzt aus der jüngsten bekannten Saison dieses Vereins – bitte prüfen (Auf-/Abstieg)"' : '') + ' onchange="lkEdit(' + i + ',\'' + k + '\',this.value)" style="' + inp + 'width:100%;min-width:90px;' + (guess(k) ? 'border-color:#e8a33d;' : '') + '"></td>';
 		return '<tr data-i="' + i + '" class="lk-row' + (lk.sel === i ? ' lk-sel' : '') + '" onmousedown="lkSelect(' + i + ')" onfocusin="lkSelect(' + i + ')" ondragover="event.preventDefault()" ondrop="lkDrop(event,' + i + ')" style="border-top:1px solid #222;">' +
 			'<td><div onclick="lkPick(' + i + ')" title="Bild wählen" style="width:48px;height:60px;border:1px dashed #555;border-radius:6px;cursor:pointer;background:#111 center/cover;display:flex;align-items:center;justify-content:center;color:#666;' + (r.preview ? 'background-image:url(' + r.preview + ');border-style:solid;' : '') + '">' + (r.preview ? '' : '＋') + '</div></td>' +
 			'<td><input value="' + escHtml(r.name) + '" onchange="lkEdit(' + i + ',\'name\',this.value)" style="' + inp + 'width:100%;min-width:170px;"></td>' +
@@ -4925,6 +4948,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			'<div style="margin:6px 0 12px;"><button class="nav-btn" onclick="lkAddText()">Zur Liste hinzufügen</button></div>';
 		if (!lk.rows.length) h += '<div class="rh-empty">Noch keine Links in der Liste.</div>';
 		else {
+			if (lk.t.wett) h += '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;"><b>' + escHtml(lk.t.wett.tagName) + ' für alle Zeilen:</b><input id="lk-bulk" list="lk-comp" placeholder="z. B. Bundesliga" style="' + lkInp + 'min-width:170px;">' +
+				'<button class="nav-btn" onclick="lkBulkComp(false)">Allen zuweisen</button><button class="nav-btn" onclick="lkBulkComp(true)" title="Nur leere und geschätzte Werte überschreiben">Nur leeren/geschätzten</button><span id="lk-bulk-info" style="color:#7be0a3;font-size:0.85em;"></span></div>';
 			h += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:0.88em;"><thead><tr style="color:#888;text-align:left;"><th>Bild</th><th>Name</th><th>' + escHtml(lk.t.verein.tagName) + '</th><th>' + escHtml(lk.t.saison.tagName) + '</th><th>' + escHtml(lk.t.art.tagName) + '</th>' + (lk.t.wett ? '<th>' + escHtml(lk.t.wett.tagName) + '</th>' : '') + '<th>Status</th><th></th></tr></thead><tbody>';
 			lk.rows.forEach((r, i) => { h += lkRowHtml(i); });
 			h += '</tbody></table></div>' + dl('lk-ver', lk.verOpts) + dl('lk-art', lk.artOpts) + dl('lk-comp', comps);
@@ -4945,7 +4970,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		const r = lk.rows[i]; if (!r) return;
 		r[k] = String(v).trim();
 		if (k === 'name') r.nameEdited = true;
-		else { if (k === 'season') r.season = lkSeason(r.season); if (!r.nameEdited) r.name = lkName(r); if (k === 'club' && lk.compOf.get(lkAscii(r.club)) && !r.wett) r.wett = lk.compOf.get(lkAscii(r.club)); lkMatch(r); }
+		else { if (k === 'season') r.season = lkSeason(r.season); if (!r.nameEdited) r.name = lkName(r); if (k === 'wett') { r.wettManual = true; r.wettGuess = false; } else if ((k === 'club' || k === 'season') && !r.wettManual) { const w = lkComp(r.club, r.season); r.wett = w.v; r.wettGuess = w.guess; } lkMatch(r); }
 		if (k === 'name') lkSave(); else lkRefreshRow(i);
 	}
 	function lkMode(i, v) { lk.rows[i].mode = v; lkRefreshRow(i); }
