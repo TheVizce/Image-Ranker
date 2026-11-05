@@ -1091,6 +1091,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 				<div id="win-chance-bar"><div id="chance-r" style="background: var(--accent-r);"></div> <div id="chance-l" style="background: var(--side-l);"></div>   </div>
 				<div id="prob-text" style="font-size: 0.9em; font-weight: bold; color: var(--side-l);">50/50</div>
 				<div id="elo-gap" class="cp-gap"></div>
+				<div id="pick-why" style="display:none; margin-top:6px; color:#8ab4ff; border:1px solid rgba(138,180,255,0.4); background:rgba(138,180,255,0.1); border-radius:12px; padding:2px 10px; font-size:0.72em;" title="So kam dieses Duell zustande"></div>
 				<div id="rival-badge" style="display:none; margin-top:6px; background:rgba(231,76,60,0.18); border:1px solid #e74c3c; color:#ff8a7a; border-radius:12px; padding:2px 10px; font-size:0.75em; font-weight:bold;">⚔️ Rivalen</div>
 				
 				<div class="h2h-box" id="h2h-ui">
@@ -1758,6 +1759,12 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	}
 	async function updateH2HStats() {
 		const matchIdx = await getMatchIndex();
+		const pw = document.getElementById('pick-why');
+		if (pw) {
+			const W = { rival: ['⚔️', 'Rivale'], group: ['👥', 'Gruppe'], similar: ['🔗', 'Ähnlich'], outside: ['🎲', 'Zufall'], elo: ['📊', 'Elo-Nähe'], cov: ['🧭', 'Abdeckung'] }[pickWhy && pickWhy.k];
+			pw.style.display = W ? 'inline-block' : 'none';
+			if (W) pw.textContent = W[0] + ' ' + W[1] + (pickWhy.d ? ' · ' + pickWhy.d : '');
+		}
 		const rb = document.getElementById('rival-badge');
 		if (rb) {
 			const isRival = !!(curL && curR && (curL.rivals || []).some(r => r.status === 'confirmed' && r.id == curR.id));
@@ -1790,10 +1797,11 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	
 	// Gezielte Gegnerwahl über die Würfelzahl 0..1: erst der Rivalen-Anteil, dann Gruppen, dann „ähnlich“ (gleicher Wert bei den Vergleichs-Eigenschaften).
 	// Gibt null zurück, wenn der Wurf in keinen dieser Anteile fällt oder es dort keine Kandidaten gibt.
+	let pickWhy = null; // Wie kam das aktuelle Duell zustande? {k, d}
 	function targetedOpponent(left, pool, matchIdx, roll) {
 		const R = settings.shareRival, G = R + settings.shareGroup, S = G + settings.shareSimilar;
 		if (roll >= S) return null;
-		let arr = [];
+		let arr = [], viaTag = '';
 		if (roll < R) {
 			const ids = new Set((left.rivals || []).filter(r => r.status === 'confirmed').map(r => r.id));
 			arr = pool.filter(c => ids.has(c.id));
@@ -1806,13 +1814,22 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			for (const n of order) {
 				const mine = new Set(getTagValuesAs(left, n, 'multi').map(tagKey));
 				arr = pool.filter(c => getTagValuesAs(c, n, 'multi').some(v => mine.has(tagKey(v))));
-				if (arr.length) break;
+				if (arr.length) { viaTag = n; break; }
 			}
 		}
 		if (!arr.length) return null;
 		const oppMap = opponentsOf(matchIdx, left.id), cnt = c => oppMap.get(Number(c.id)) || 0;
 		const min = Math.min(...arr.map(cnt)), best = arr.filter(c => cnt(c) === min);
-		return best[Math.floor(Math.random() * best.length)];
+		const chosen = best[Math.floor(Math.random() * best.length)];
+		if (roll < R) pickWhy = { k: 'rival', d: '' };
+		else if (roll < G) {
+			const mine = new Set(getGroups(left).map(groupKey));
+			pickWhy = { k: 'group', d: getGroups(chosen).filter(g => mine.has(groupKey(g))).join(', ') };
+		} else {
+			const mine = new Set(getTagValuesAs(left, viaTag, 'multi').map(tagKey));
+			pickWhy = { k: 'similar', d: viaTag + ': ' + getTagValuesAs(chosen, viaTag, 'multi').filter(v => mine.has(tagKey(v))).join(', ') };
+		}
+		return chosen;
 	}
 
 	// Wählt den Gegner im STANDARD-Modus: Rivale / Zufall von außerhalb / Elo-Nachbar
@@ -1853,11 +1870,14 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		// 2. Zufälliger Gegner von außerhalb des Elo-Bereichs
 		const shareT = cfg.shareRival + cfg.shareGroup + settings.shareSimilar;
 		if (roll >= shareT && roll < shareT + cfg.shareOutside && outside.length > 0) {
+			pickWhy = { k: 'outside', d: '' };
 			return pick(outside);
 		}
 
 		// 3. Elo-Nachbar (auch Fallback für alle anderen Fälle)
-		return pick(neighbors.length > 0 ? neighbors : pool);
+		const nb = pick(neighbors.length > 0 ? neighbors : pool);
+		pickWhy = { k: 'elo', d: 'Δ ' + Math.round(Math.abs(nb.elo - left.elo)) + ' Elo' };
+		return nb;
 	}
 
 	function isSamePair(pair, idA, idB) {
@@ -1929,6 +1949,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
         if (!curL) return;
         
         // --- 2. RECHTES BILD (CURR) GEZIELT DAZU MATCHEN ---
+        pickWhy = null;
         let potR = pool.filter(i => i.id !== curL.id);
         if (potR.length === 0) return;
         
@@ -1950,6 +1971,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
             curR = bestOpponents[Math.floor(Math.random() * bestOpponents.length)];
             // minCount >= 1: das linke Bild hat schon gegen JEDEN Gegner im Pool (= Filter) gespielt
             covRepeat = minCount >= 1; covRound = minCount + 1; covOpp = potR.length;
+            pickWhy = { k: 'cov', d: minCount === 0 ? 'noch nie gespielt' : 'Runde ' + (minCount + 1) };
         } 
         
         // STANDARD (oder COVERAGE nicht möglich): Elo-Nachbarn / Außerhalb / Rivalen
