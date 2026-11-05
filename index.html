@@ -1199,7 +1199,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
             const json = k => { try { return JSON.parse(raw(k)); } catch (e) { return undefined; } };
             const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
             const num = v => v !== null && v !== '' && isFinite(Number(v));
-            const SETTING_KEYS = ['matchupMode', 'focusMatches', 'eloWindow', 'shareOutside', 'shareRival', 'shareGroup', 'rivalGroupWeight', 'groupRules', 'uncertainBelow', 'newbieBoost', 'tabAccent', 'tagOrder', 'imageFit', 'dailyGoals', 'tagWeights'];
+            const SETTING_KEYS = ['matchupMode', 'focusMatches', 'eloWindow', 'shareOutside', 'shareRival', 'shareGroup', 'shareSimilar', 'matchTags', 'bandsInCoverage', 'rivalGroupWeight', 'groupRules', 'uncertainBelow', 'newbieBoost', 'tabAccent', 'tagOrder', 'imageFit', 'dailyGoals', 'tagWeights'];
             const checks = {
                 tabs: () => { const v = json('tabs'); return Array.isArray(v) && v.length > 0 && v.every(t => typeof t === 'string' && t); },
                 settings: () => { const v = json('settings'); return isObj(v) && Object.keys(v).length > 0 && Object.keys(v).every(k => SETTING_KEYS.includes(k)); },
@@ -1261,6 +1261,9 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		eloWindow: 100,           // STANDARD: "Gleicher Elo-Bereich" = +/- so viele Elo-Punkte
 		shareOutside: 0.25,       // STANDARD: Anteil Zufallsgegner von außerhalb des Elo-Bereichs
 		rivalGroupWeight: 1,      // Rivalen-Vorschläge: Zuschlag je gemeinsamer Gruppe (Schnittmenge), 0 = aus
+		shareSimilar: 0.2,        // Anteil Gegner mit gleichem Wert bei den gewählten Vergleichs-Eigenschaften (matchTags)
+		matchTags: {},            // { "<Tab>": [Eigenschaftsnamen] }: bei ähnlichen Gegnern wird eine davon zufällig gewählt
+		bandsInCoverage: true,    // Rivalen-, Gruppen- und Ähnlich-Anteil auch im COVERAGE-Modus anwenden (dort: der am seltensten gespielte aus der Auswahl)
 		shareGroup: 0.1,          // STANDARD: Anteil Gegner aus einer gemeinsamen Gruppe (ohne Gruppe geht der Anteil an die Elo-Nachbarn)
 		shareRival: 0.15,         // STANDARD: Anteil Rivalen (hat das Bild keine, geht der Anteil an die Elo-Nachbarn)
 		tagOrder: {},             // Reihenfolge der Eigenschaften pro Tab: { "<Tab>": ["Name", ...] } (fehlt der Tab = Anlegereihenfolge)
@@ -1304,6 +1307,9 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			shareRival: num(r.shareRival, 0, 1, d.shareRival),
 			rivalGroupWeight: num(r.rivalGroupWeight, 0, 100, d.rivalGroupWeight),
 			shareGroup: num(r.shareGroup, 0, 1, d.shareGroup),
+			shareSimilar: num(r.shareSimilar, 0, 1, d.shareSimilar),
+			bandsInCoverage: r.bandsInCoverage === undefined ? !!d.bandsInCoverage : (r.bandsInCoverage === true || r.bandsInCoverage === 'true'),
+			matchTags: {},
 			uncertainBelow: Math.round(num(r.uncertainBelow, 0, 500, d.uncertainBelow)),
 			newbieBoost: r.newbieBoost === undefined ? !!d.newbieBoost : (r.newbieBoost === true || r.newbieBoost === 'true'),
 			tagWeights: {},
@@ -1330,7 +1336,10 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			if (isFinite(n) && n >= 1) out.dailyGoals[tab] = Math.min(100000, n);
 		});
 		if (out.shareGroup + out.shareRival > 1) out.shareGroup = 1 - out.shareRival;
-		if (out.shareOutside + out.shareRival + out.shareGroup > 1) out.shareOutside = 1 - out.shareRival - out.shareGroup;
+		if (out.shareSimilar + out.shareRival + out.shareGroup > 1) out.shareSimilar = 1 - out.shareRival - out.shareGroup;
+		if (out.shareOutside + out.shareRival + out.shareGroup + out.shareSimilar > 1) out.shareOutside = 1 - out.shareRival - out.shareGroup - out.shareSimilar;
+		const mt = (r.matchTags && typeof r.matchTags === 'object') ? r.matchTags : (d.matchTags || {});
+		Object.keys(mt).forEach(tab => { if (Array.isArray(mt[tab])) { const l = [...new Set(mt[tab].map(String).filter(Boolean))]; if (l.length) out.matchTags[tab] = l; } });
 		const gr = (r.groupRules && typeof r.groupRules === 'object') ? r.groupRules : (d.groupRules || {});
 		Object.keys(gr).forEach(tab => {
 			const t = gr[tab]; if (!t || typeof t !== 'object') return;
@@ -1779,6 +1788,33 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		document.getElementById('h2h-bar-fill').style.width = total === 0 ? "50%" : (winsL / total * 100) + "%";
 	}
 	
+	// Gezielte Gegnerwahl über die Würfelzahl 0..1: erst der Rivalen-Anteil, dann Gruppen, dann „ähnlich“ (gleicher Wert bei den Vergleichs-Eigenschaften).
+	// Gibt null zurück, wenn der Wurf in keinen dieser Anteile fällt oder es dort keine Kandidaten gibt.
+	function targetedOpponent(left, pool, matchIdx, roll) {
+		const R = settings.shareRival, G = R + settings.shareGroup, S = G + settings.shareSimilar;
+		if (roll >= S) return null;
+		let arr = [];
+		if (roll < R) {
+			const ids = new Set((left.rivals || []).filter(r => r.status === 'confirmed').map(r => r.id));
+			arr = pool.filter(c => ids.has(c.id));
+		} else if (roll < G) {
+			const mine = new Set(getGroups(left).map(groupKey));
+			arr = mine.size ? pool.filter(c => getGroups(c).some(g => mine.has(groupKey(g)))) : [];
+		} else {
+			const names = (settings.matchTags[left.tab] || []).filter(n => getTagValuesAs(left, n, 'multi').length);
+			const order = names.slice().sort(() => Math.random() - 0.5);
+			for (const n of order) {
+				const mine = new Set(getTagValuesAs(left, n, 'multi').map(tagKey));
+				arr = pool.filter(c => getTagValuesAs(c, n, 'multi').some(v => mine.has(tagKey(v))));
+				if (arr.length) break;
+			}
+		}
+		if (!arr.length) return null;
+		const oppMap = opponentsOf(matchIdx, left.id), cnt = c => oppMap.get(Number(c.id)) || 0;
+		const min = Math.min(...arr.map(cnt)), best = arr.filter(c => cnt(c) === min);
+		return best[Math.floor(Math.random() * best.length)];
+	}
+
 	// Wählt den Gegner im STANDARD-Modus: Rivale / Zufall von außerhalb / Elo-Nachbar
 	function pickStandardOpponent(left, candidates, matchIdx) {
 		const cfg = {
@@ -1810,28 +1846,13 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 
 		const roll = Math.random();
 
-		// 1. Rivale (bevorzugt den, gegen den am seltensten gespielt wurde)
-		if (roll < cfg.shareRival && rivals.length > 0) {
-			const oppMap = opponentsOf(matchIdx, left.id);
-			const counts = {};
-			rivals.forEach(r => { counts[r.id] = oppMap.get(Number(r.id)) || 0; });
-			const minCount = Math.min(...rivals.map(r => counts[r.id]));
-			return pick(rivals.filter(r => counts[r.id] === minCount));
-		}
-
-		// 1b. Gruppenmitglied (gemeinsame Gruppe; bevorzugt den, gegen den am seltensten gespielt wurde)
-		if (roll >= cfg.shareRival && roll < cfg.shareRival + cfg.shareGroup) {
-			const mine = new Set(getGroups(left).map(groupKey));
-			const mates = mine.size ? pool.filter(c => getGroups(c).some(g => mine.has(groupKey(g)))) : [];
-			if (mates.length > 0) {
-				const oppMap = opponentsOf(matchIdx, left.id);
-				const minCount = Math.min(...mates.map(c => oppMap.get(Number(c.id)) || 0));
-				return pick(mates.filter(c => (oppMap.get(Number(c.id)) || 0) === minCount));
-			}
-		}
+		// 1.–3. Gezielte Gegner: Rivale, Gruppenmitglied, ähnlicher Gegner (je der am seltensten gespielte)
+		const targeted = targetedOpponent(left, pool, matchIdx, roll);
+		if (targeted) return targeted;
 
 		// 2. Zufälliger Gegner von außerhalb des Elo-Bereichs
-		if (roll >= cfg.shareRival + cfg.shareGroup && roll < cfg.shareRival + cfg.shareGroup + cfg.shareOutside && outside.length > 0) {
+		const shareT = cfg.shareRival + cfg.shareGroup + settings.shareSimilar;
+		if (roll >= shareT && roll < shareT + cfg.shareOutside && outside.length > 0) {
 			return pick(outside);
 		}
 
@@ -1911,6 +1932,10 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
         let potR = pool.filter(i => i.id !== curL.id);
         if (potR.length === 0) return;
         
+        if (!curR && settings.matchupMode === "COVERAGE" && settings.bandsInCoverage) {
+            // Gezielt: Rivale / Gruppe / ähnlich (der am seltensten gespielte daraus); sonst wie bisher nach Abdeckung
+            curR = targetedOpponent(curL, potR, matchIdx, Math.random());
+        }
         if (!curR && settings.matchupMode === "COVERAGE") {
             // Gegner, gegen den das linke Bild bisher am seltensten gespielt hat (bei Gleichstand zufällig)
             const oppMap = opponentsOf(matchIdx, curL.id);
@@ -3925,6 +3950,11 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			delete settings.tagWeights[tabName][oldName];
 			saveSettings();
 		}
+		// Vergleichs-Eigenschaften (Matchmaking) und Gruppen-Voraussetzungen verweisen per Namen auf die Eigenschaft
+		let moved = false;
+		if (Array.isArray(settings.matchTags[tabName]) && settings.matchTags[tabName].includes(oldName)) { settings.matchTags[tabName] = settings.matchTags[tabName].map(n => n === oldName ? newName : n); moved = true; }
+		Object.values((settings.groupRules && settings.groupRules[tabName]) || {}).forEach(r => (r.conds || []).forEach(c => { if (c.tag === oldName) { c.tag = newName; moved = true; } }));
+		if (moved) saveSettings();
 	
 		// 2. Alle Bilder in diesem Tab migrieren (damit die Werte erhalten bleiben)
 		const txImg = db.transaction("images", "readwrite");
@@ -3997,17 +4027,27 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			'</select></div>';
 		h += '<div id="set-mode-hint" style="' + hint + ' margin:-4px 0 12px 0;">' + escHtml(MATCHUP_MODES[settings.matchupMode]) + '</div>';
 
+		h += '<div style="border-top:1px solid #222; padding-top:12px;">';
+		h += '<div style="' + hint + ' margin:0 0 10px 0;"><b>Gezielte Gegner</b> – gelten im STANDARD-Modus und, wenn unten angehakt, auch im COVERAGE-Modus. Gewählt wird jeweils der, gegen den am seltensten gespielt wurde.</div>';
+		h += '<div style="' + row + '"><label for="set-shareRival">Anteil Rivalen (%)</label>' +
+			'<input id="set-shareRival" type="number" min="0" max="100" step="5" value="' + pct(settings.shareRival) + '" onchange="updateShare(\'shareRival\', this.value)" style="' + inp + ' width:90px;"></div>';
+		h += '<div style="' + row + '"><label for="set-shareGroup">Anteil Gruppenmitglieder (%)</label>' +
+			'<input id="set-shareGroup" type="number" min="0" max="100" step="5" value="' + pct(settings.shareGroup) + '" onchange="updateShare(\'shareGroup\', this.value)" style="' + inp + ' width:90px;"></div>';
+		h += '<div style="' + row + '"><label for="set-shareSimilar">Anteil ähnlicher Gegner (%)</label>' +
+			'<input id="set-shareSimilar" type="number" min="0" max="100" step="5" value="' + pct(settings.shareSimilar) + '" onchange="updateShare(\'shareSimilar\', this.value)" style="' + inp + ' width:90px;"></div>';
+		const mtSel = new Set(settings.matchTags[currentTab] || []);
+		h += '<div style="' + hint + ' margin:0 0 6px 0;">„Ähnlich“ = gleicher Wert bei einer dieser Eigenschaften (Tab „' + escHtml(currentTab) + '“; pro Duell wird eine davon zufällig gewählt, z. B. Saison oder Verein):</div><div style="display:flex; flex-wrap:wrap; gap:6px 14px; margin-bottom:10px;">' +
+			(tagDefs.length ? tagDefs.map((d, di) => '<label style="display:inline-flex; align-items:center; gap:5px; cursor:pointer;"><input type="checkbox" ' + (mtSel.has(d.tagName) ? 'checked' : '') + ' onchange="toggleMatchTag(' + di + ', this.checked)">' + escHtml(d.tagName) + '</label>').join('') : '<span style="color:#555; font-style:italic;">Keine Eigenschaften in diesem Tab.</span>') + '</div>';
+		h += '<div style="' + row + '"><label for="set-bandsInCoverage">Auch im COVERAGE-Modus anwenden</label>' +
+			'<input id="set-bandsInCoverage" type="checkbox" ' + (settings.bandsInCoverage ? 'checked' : '') + ' onchange="updateSetting(\'bandsInCoverage\', this.checked)"></div>';
+		h += '</div>';
 		h += '<div id="settings-standard" style="border-top:1px solid #222; padding-top:12px; opacity:' + (settings.matchupMode === 'STANDARD' ? '1' : '0.45') + ';">';
 		h += '<div style="' + hint + ' margin:0 0 10px 0;">STANDARD-Modus (wirkt nur, wenn er aktiv ist)</div>';
 		h += '<div style="' + row + '"><label for="set-eloWindow">Elo-Bereich (± Punkte)</label>' +
 			'<input id="set-eloWindow" type="number" min="10" max="2000" step="10" value="' + settings.eloWindow + '" onchange="updateSetting(\'eloWindow\', this.value)" style="' + inp + ' width:90px;"></div>';
-		h += '<div style="' + row + '"><label for="set-shareRival">Anteil Rivalen (%)</label>' +
-			'<input id="set-shareRival" type="number" min="0" max="100" step="5" value="' + pct(settings.shareRival) + '" onchange="updateShare(\'shareRival\', this.value)" style="' + inp + ' width:90px;"></div>';
 		h += '<div style="' + row + '"><label for="set-shareOutside">Anteil von außerhalb des Elo-Bereichs (%)</label>' +
 			'<input id="set-shareOutside" type="number" min="0" max="100" step="5" value="' + pct(settings.shareOutside) + '" onchange="updateShare(\'shareOutside\', this.value)" style="' + inp + ' width:90px;"></div>';
-		h += '<div style="' + row + '"><label for="set-shareGroup">Anteil Gruppenmitglieder (%)</label>' +
-			'<input id="set-shareGroup" type="number" min="0" max="100" step="5" value="' + pct(settings.shareGroup) + '" onchange="updateShare(\'shareGroup\', this.value)" style="' + inp + ' width:90px;"></div>';
-		h += '<div style="' + hint + '">Rest: <b id="set-shareNeighbor">' + (100 - pct(settings.shareRival) - pct(settings.shareOutside) - pct(settings.shareGroup)) + '</b> % Elo-Nachbarn</div>';
+		h += '<div style="' + hint + '">Rest: <b id="set-shareNeighbor">' + (100 - pct(settings.shareRival) - pct(settings.shareOutside) - pct(settings.shareGroup) - pct(settings.shareSimilar)) + '</b> % Elo-Nachbarn</div>';
 		h += '</div>';
 		h += '</div>';
 
@@ -4181,6 +4221,13 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		syncSettingsInputs();
 	}
 
+	async function toggleMatchTag(di, on) {
+		const defs = await getTagDefinitionsForTab(currentTab), d = defs[di]; if (!d) return;
+		const l = new Set(settings.matchTags[currentTab] || []);
+		if (on) l.add(d.tagName); else l.delete(d.tagName);
+		if (l.size) settings.matchTags[currentTab] = [...l]; else delete settings.matchTags[currentTab];
+		saveSettings();
+	}
 	function updateShare(key, percentRaw) {
 		const n = Number(percentRaw);
 		updateSetting(key, (percentRaw === '' || !isFinite(n)) ? '' : n / 100);
@@ -4193,10 +4240,11 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		set('set-eloWindow', settings.eloWindow);
 		set('set-rivalGroupWeight', settings.rivalGroupWeight);
 		set('set-shareGroup', Math.round(settings.shareGroup * 100));
+		set('set-shareSimilar', Math.round(settings.shareSimilar * 100));
 		set('set-shareRival', Math.round(settings.shareRival * 100));
 		set('set-shareOutside', Math.round(settings.shareOutside * 100));
 		const nb = document.getElementById('set-shareNeighbor');
-		if (nb) nb.textContent = 100 - Math.round(settings.shareRival * 100) - Math.round(settings.shareOutside * 100) - Math.round(settings.shareGroup * 100);
+		if (nb) nb.textContent = 100 - Math.round(settings.shareRival * 100) - Math.round(settings.shareOutside * 100) - Math.round(settings.shareGroup * 100) - Math.round(settings.shareSimilar * 100);
 		const hintEl = document.getElementById('set-mode-hint');
 		if (hintEl) hintEl.textContent = MATCHUP_MODES[settings.matchupMode];
 		const std = document.getElementById('settings-standard');
@@ -6709,11 +6757,12 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		root.innerHTML = '<h2 style="margin-top:0;">🕸️ Rivalen-Zentrale <small style="font-size:0.5em;color:#888;">Tab: ' + escHtml(h.tab) + '</small></h2>' +
 			'<div class="rh-tabs"><button class="rh-tab' + (h.view === 'list' ? ' on' : '') + '" onclick="rivalHubView(\'list\')">💡 Vorschläge' + (h.sugg ? ' (' + h.sugg.length + (h.suggTotalCapped ? '+' : '') + ')' : '') + '</button>' +
 			'<button class="rh-tab' + (h.view === 'groups' ? ' on' : '') + '" onclick="rivalHubView(\'groups\')">🫧 Gruppen (' + groupsOfImages(h.images).size + ')</button>' +
+			(kitTags(h.defsByName) ? '<button class="rh-tab' + (h.view === 'kits' ? ' on' : '') + '" onclick="rivalHubView(\'kits\')">👕 Kit-Reihen</button>' : '') +
 			(evoDexTag(h.defsByName) ? '<button class="rh-tab' + (h.view === 'evo' ? ' on' : '') + '" onclick="rivalHubView(\'evo\')">🧬 Entwicklungsreihen</button>' : '') +
 			'<button class="rh-tab' + (h.view === 'graph' ? ' on' : '') + '" onclick="rivalHubView(\'graph\')">🕸️ Rivalen-Netz (' + nCl + ' Verbünde)</button></div>' +
 			'<div id="rh-view"></div>' +
 			'<div class="rh-reset">🧹 Rivalen &amp; Gruppen komplett löschen: <button onclick="rivalHubWipe(false)">nur dieser Tab</button><button onclick="rivalHubWipe(true)">alle Tabs</button></div>';
-		if (h.view === 'list') renderRivalHubList(); else if (h.view === 'groups') renderRivalHubGroups(); else if (h.view === 'evo' && evoDexTag(h.defsByName)) renderRivalHubEvo(); else renderRivalHubGraph();
+		if (h.view === 'list') renderRivalHubList(); else if (h.view === 'groups') renderRivalHubGroups(); else if (h.view === 'evo' && evoDexTag(h.defsByName)) renderRivalHubEvo(); else if (h.view === 'kits' && kitTags(h.defsByName)) renderRivalHubKits(); else renderRivalHubGraph();
 	}
 	function rivalHubView(v) { rivalHub.view = v; renderRivalHub(); }
 
@@ -6823,6 +6872,71 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		const ex = rhgGroups().find(g => g.key === groupKey(name)); if (ex) name = ex.name;
 		await editGroups(c.members.map(m => m.id), im => { im.groups = getGroups(im).concat(name); });
 		h.evoDone.add(root); h.sugg = null; h.gg = null; renderRivalHub();
+	}
+	// ===== Kit-Reihen (Trikots): Sets eines Vereins je Saison und Nachfolger je Verein+Art als Rivalen-Vorschläge =====
+	function kitTags(defsByName) {
+		if (!defsByName) return null;
+		const by = k => [...defsByName.keys()].find(n => lkAscii(n) === k);
+		const v = by('verein'), se = by('saison'), a = by('art');
+		return (v && se && a) ? { verein: v, saison: se, art: a } : null;
+	}
+	function kitAnalyze(h) {
+		const t = kitTags(h.defsByName), get = (im, n) => (getTagValuesAs(im, n, 'multi')[0] || '');
+		const byClub = new Map();
+		h.images.forEach(im => {
+			const v = get(im, t.verein), se = get(im, t.saison), a = get(im, t.art);
+			if (!v || !se || !a) return;
+			const e = { im: im, v: v, se: se, a: a, tw: /^tw\b/i.test(a) };
+			if (!byClub.has(lkAscii(v))) byClub.set(lkAscii(v), []);
+			byClub.get(lkAscii(v)).push(e);
+		});
+		const sets = [], succ = [], yr = x => Number(String(x).slice(0, 4)) || 0;
+		byClub.forEach(list => {
+			const seasons = new Map();
+			list.forEach(e => { const k = e.se + (e.tw ? '|tw' : ''); if (!seasons.has(k)) seasons.set(k, []); seasons.get(k).push(e); });
+			seasons.forEach((es, k) => {
+				if (es.length < 2) return;
+				const pairs = []; for (let i = 0; i < es.length; i++) for (let j = i + 1; j < es.length; j++) pairs.push([es[i].im, es[j].im]);
+				sets.push({ title: es[0].v + ' ' + es[0].se + (es[0].tw ? ' (Torwart)' : ''), names: es.map(e => e.a), pairs: pairs, key: lkAscii(es[0].v) + k });
+			});
+			const byArt = new Map();
+			list.forEach(e => { if (!byArt.has(lkAscii(e.a))) byArt.set(lkAscii(e.a), []); byArt.get(lkAscii(e.a)).push(e); });
+			byArt.forEach(es => {
+				es.sort((x, y) => x.se.localeCompare(y.se));
+				const pairs = [], seen = [];
+				for (let i = 1; i < es.length; i++) if (es[i].se !== es[i - 1].se && yr(es[i].se) - yr(es[i - 1].se) <= 2) pairs.push([es[i - 1].im, es[i].im]);
+				if (pairs.length) succ.push({ title: es[0].v + ' – ' + es[0].a, names: [...new Set(es.map(e => e.se))], pairs: pairs, key: lkAscii(es[0].v) + '|' + lkAscii(es[0].a) });
+			});
+		});
+		const cmp = (a, b) => a.title.localeCompare(b.title, 'de');
+		return { sets: sets.sort(cmp), succ: succ.sort(cmp) };
+	}
+	function renderRivalHubKits() {
+		const h = rivalHub, view = document.getElementById('rh-view'); if (!view) return;
+		const a = kitAnalyze(h), known = evoKnown(h);
+		h.kitData = a;
+		const fresh = g => g.pairs.filter(p => !known.has(evoPairKey(p[0], p[1])));
+		const sec = (title, arr, kind) => {
+			const nf = arr.reduce((s, g) => s + fresh(g).length, 0);
+			let o = '<div class="rh-bar" style="margin-top:14px;"><b>' + title + ': ' + nf + ' neue Paare</b>' + (nf ? '<button class="nav-btn" style="padding:5px 12px;" onclick="kitConfirm(\'' + kind + '\')">Alle ' + nf + ' bestätigen</button>' : '') + '</div>';
+			arr.filter(g => fresh(g).length).slice(0, 150).forEach(g => {
+				o += '<div class="rhg-panel" style="margin-top:6px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;"><span style="flex:1;min-width:200px;"><b>' + escHtml(g.title) + '</b> · ' + g.names.map(escHtml).join(' ↔ ') + '</span><span style="color:#aaa;">' + fresh(g).length + ' neu</span>' +
+					'<button class="nav-btn" style="padding:3px 12px;" onclick="kitConfirm(\'' + kind + '\',' + JSON.stringify(g.key).replace(/"/g, '&quot;') + ')">Bestätigen</button></div>';
+			});
+			if (arr.filter(g => fresh(g).length).length > 150) o += '<div style="color:#777;margin-top:6px;">… weitere Reihen nach dem Bestätigen.</div>';
+			return o;
+		};
+		view.innerHTML = '<div class="rh-bar"><span>Vorschläge aus Verein, Saison und Art. <b>Sets:</b> die Trikots eines Vereins in einer Saison untereinander. <b>Nachfolger:</b> gleiche Art, gleicher Verein, direkt aufeinanderfolgende Saisons. Torwart-Trikots bilden eigene Sets. Bereits bestätigte oder abgelehnte Paare werden nicht erneut vorgeschlagen.</span></div>' +
+			sec('Sets (Verein + Saison)', a.sets, 'sets') + sec('Nachfolger (Verein + Art)', a.succ, 'succ') +
+			(!a.sets.length && !a.succ.length ? '<div class="rh-empty">Keine passenden Reihen gefunden.</div>' : '');
+	}
+	async function kitConfirm(kind, key) {
+		const h = rivalHub, a = h.kitData; if (!a) return;
+		const known = evoKnown(h), pairs = [];
+		(kind === 'sets' ? a.sets : a.succ).forEach(g => { if (key && g.key !== key) return; g.pairs.forEach(p => { if (!known.has(evoPairKey(p[0], p[1]))) pairs.push(p); }); });
+		if (!pairs.length) return;
+		if (!key && !confirm(pairs.length + ' Paare als Rivalen bestätigen?')) return;
+		await evoConfirmPairs(pairs); renderRivalHub();
 	}
 	function evoSkip(root) { rivalHub.evoDone.add(root); renderRivalHubEvo(); }
 
