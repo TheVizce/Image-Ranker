@@ -2603,7 +2603,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		allTabMatches.forEach(m => {
 			if(m.leftId && m.rightId) {
 				const pairKey = [m.leftId, m.rightId].sort().join('-');
-				if (!uniquePairsMap[pairKey]) uniquePairsMap[pairKey] = { [m.leftId]: 0, [m.rightId]: 0, total: 0 };
+				if (!uniquePairsMap[pairKey]) uniquePairsMap[pairKey] = { [m.leftId]: 0, [m.rightId]: 0, total: 0, first: Infinity };
+				if (m.time && m.time < uniquePairsMap[pairKey].first) uniquePairsMap[pairKey].first = m.time;
 				const winnerRealId = (m.winnerId === 'left') ? m.leftId : m.rightId;
 				uniquePairsMap[pairKey][winnerRealId]++;
 				uniquePairsMap[pairKey].total++;
@@ -2618,7 +2619,11 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		const avgMatches = list.length === 0 ? 0 : ((allTabMatches.length * 2) / list.length).toFixed(1);
 		
 		// --- Prognose für 100% Abdeckung ---
-		const avgMatchesPerDay = totalPeriodMatches / DAYS_TO_SHOW;
+		// Nur Matches, die ein Paar zum ersten Mal spielen, bringen die Abdeckung voran (Wiederholungen, Rivalen usw. nicht)
+		const periodStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (DAYS_TO_SHOW - 1)).getTime();
+		const newPairsInPeriod = Object.values(uniquePairsMap).filter(v => v.first >= periodStart).length;
+		const avgMatchesPerDay = newPairsInPeriod / DAYS_TO_SHOW;
+		const newShare = totalPeriodMatches > 0 ? Math.round((newPairsInPeriod / totalPeriodMatches) * 100) : 0;
 	
 		let etaText = "Unbekannt";
 		let etaSubtext = "";
@@ -2636,10 +2641,10 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			} else {
 				etaText = "ca. " + daysRemaining + " Tage";
 			}
-			etaSubtext = "Noch " + remainingPairs + " neue Paare. Voraussichtlich am " + completionDate.toLocaleDateString('de-DE') + " (bei ∅ " + avgMatchesPerDay.toFixed(1) + " Matches/Tag)";
+			etaSubtext = "Noch " + remainingPairs + " neue Paare. Voraussichtlich am " + completionDate.toLocaleDateString('de-DE') + " (bei ∅ " + avgMatchesPerDay.toFixed(1) + " neuen Paaren/Tag; in den letzten " + DAYS_TO_SHOW + " Tagen waren " + newShare + " % deiner Matches neue Paare). Je höher die Abdeckung, desto seltener sind Paare neu, die Prognose ist daher eher optimistisch.";
 		} else {
-			etaText = "Keine Aktivität";
-			etaSubtext = "Basiert auf den letzten 30 Tagen.";
+			etaText = totalPeriodMatches > 0 ? "Nicht absehbar" : "Keine Aktivität";
+			etaSubtext = totalPeriodMatches > 0 ? "In den letzten " + DAYS_TO_SHOW + " Tagen wurde kein Paar zum ersten Mal gespielt." : "Basiert auf den letzten " + DAYS_TO_SHOW + " Tagen.";
 		}
 		// ---------------------------------------------------------------------
 	
