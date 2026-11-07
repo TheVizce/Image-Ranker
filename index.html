@@ -788,10 +788,12 @@ html[data-theme="arena"] div::-webkit-scrollbar-thumb { background: #3d3a68; }
 html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data-extras="off"] .cp-gap { display: none; }
 
 /* ===== ZOOM, ANIMATION, HINWEISE ===== */
-.grp-badges { position: absolute; top: 44px; left: 8px; right: 52px; z-index: 15; display: flex; flex-wrap: wrap; gap: 5px; pointer-events: none; }
+.grp-badges { position: absolute; top: 44px; left: 8px; max-width: calc(100% - 70px); z-index: 15; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; pointer-events: none; }
 .grp-badge { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 3px 9px 3px 6px; border-radius: 14px; background: rgba(0,0,0,0.62); border: 1.5px solid var(--gc); color: #fff; font-size: 0.78em; backdrop-filter: blur(3px); }
 .grp-badge i { font-style: normal; color: var(--gc); }
 .grp-badge b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grp-badge.more { padding: 2px 8px; border-color: rgba(255,255,255,0.35); color: #ddd; font-size: 0.72em; }
+@media (max-width: 700px), (max-height: 700px) { .grp-badges { top: 40px; gap: 3px; } .grp-badge { padding: 2px 7px 2px 5px; font-size: 0.7em; } }
 .grp-pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 14px; border: 1.5px solid var(--gc); background: color-mix(in srgb, var(--gc) 18%, transparent); color: #eee; font-size: 0.85em; }
 .grp-pill button { background: none; border: none; color: #ccc; cursor: pointer; padding: 0 0 0 2px; font-size: 1em; line-height: 1; }
 .zoom-btn { position: absolute; top: 8px; right: 8px; z-index: 20; width: 34px; height: 34px; padding: 0; border-radius: 50%; border: 1px solid rgba(255,255,255,0.25); background: rgba(0,0,0,0.55); color: #fff; cursor: zoom-in; font-size: 1em; opacity: 0; transition: opacity .15s; }
@@ -5515,7 +5517,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		const gs = getGroups(img);
 		if (!gs.length) { if (el) el.remove(); return; }
 		if (!el) { el = document.createElement('div'); el.className = 'grp-badges'; c.appendChild(el); }
-		el.innerHTML = gs.map(g => '<span class="grp-badge" style="--gc:' + groupColor(g) + ';" title="Gruppe: ' + escHtml(g) + '">' + (/^\p{Extended_Pictographic}/u.test(g) ? '' : '<i>●</i>') + '<b>' + escHtml(g) + '</b></span>').join('');
+		const MAXB = 3, shown = gs.slice(0, MAXB), rest = gs.slice(MAXB);
+		el.innerHTML = shown.map(g => '<span class="grp-badge" style="--gc:' + groupColor(g) + ';" title="Gruppe: ' + escHtml(g) + '">' + (/^\p{Extended_Pictographic}/u.test(g) ? '' : '<i>●</i>') + '<b>' + escHtml(g) + '</b></span>').join('') + (rest.length ? '<span class="grp-badge more" title="' + escHtml(rest.join(', ')) + '">+' + rest.length + '</span>' : '');
 	}
 	// Virtuelle Mehrfachauswahl-Eigenschaft, damit Filter und Statistik Gruppen ohne Sonderfall verstehen
 	function withGroupDef(defs, tab, images) {
