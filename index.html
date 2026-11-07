@@ -295,6 +295,8 @@
 		}
 		
 		/* Peak-Badge unter dem Rank-Badge */
+		.duel-info-btn { position: absolute; top: 10px; right: 10px; z-index: 5; width: 34px; height: 34px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.25); background: rgba(0,0,0,0.55); color: #fff; font-size: 1em; line-height: 1; padding: 0; cursor: pointer; opacity: 0.85; }
+		.duel-info-btn:hover { opacity: 1; background: rgba(0,0,0,0.8); }
 		.peak-badge {
 			position: absolute; 
 			top: 48px; /* Direkt unter dem Rank-Badge */
@@ -313,7 +315,7 @@
 		/* Streak-Badge mit dynamischen Farben */
 		.streak-badge {
 			position: absolute; 
-			top: 15px; 
+			top: 52px; 
 			right: 15px; 
 			padding: 4px 12px; 
 			border-radius: 20px; 
@@ -2875,8 +2877,14 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
                 '<span>' + last + '</span>';
         } else { meta.innerHTML = ''; }
     
-        container.querySelectorAll('.rank-badge, .streak-badge, .peak-badge, .tag-badge-container').forEach(b => b.remove());
+        container.querySelectorAll('.rank-badge, .streak-badge, .peak-badge, .tag-badge-container, .duel-info-btn').forEach(b => b.remove());
     
+        // Details öffnen, ohne abzustimmen (Klick auf das Bild wäre sonst eine Stimme)
+        const iBtn = document.createElement('button');
+        iBtn.className = 'duel-info-btn'; iBtn.type = 'button'; iBtn.textContent = 'ℹ️'; iBtn.title = 'Details zu diesem Eintrag';
+        iBtn.onclick = ev => { ev.stopPropagation(); showDetailsByID(img.id); };
+        container.appendChild(iBtn);
+
         // 2. Rank Badge (bleibt auf dem Bild)
         const rBadge = document.createElement('div');
         rBadge.className = 'rank-badge';
