@@ -1202,7 +1202,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
             const json = k => { try { return JSON.parse(raw(k)); } catch (e) { return undefined; } };
             const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
             const num = v => v !== null && v !== '' && isFinite(Number(v));
-            const SETTING_KEYS = ['matchupMode', 'focusMatches', 'eloWindow', 'shareOutside', 'shareRival', 'shareGroup', 'shareSimilar', 'matchTags', 'bandsInCoverage', 'rivalGroupWeight', 'groupRules', 'uncertainBelow', 'newbieBoost', 'tabAccent', 'tagOrder', 'imageFit', 'dailyGoals', 'tagWeights'];
+            const SETTING_KEYS = ['matchupMode', 'focusMatches', 'eloWindow', 'shareOutside', 'shareRival', 'shareGroup', 'shareSimilar', 'shareUndecided', 'matchTags', 'bandsInCoverage', 'rivalGroupWeight', 'groupRules', 'uncertainBelow', 'newbieBoost', 'tabAccent', 'tagOrder', 'imageFit', 'dailyGoals', 'tagWeights'];
             const checks = {
                 tabs: () => { const v = json('tabs'); return Array.isArray(v) && v.length > 0 && v.every(t => typeof t === 'string' && t); },
                 settings: () => { const v = json('settings'); return isObj(v) && Object.keys(v).length > 0 && Object.keys(v).every(k => SETTING_KEYS.includes(k)); },
@@ -1264,6 +1264,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		eloWindow: 100,           // STANDARD: "Gleicher Elo-Bereich" = +/- so viele Elo-Punkte
 		shareOutside: 0.25,       // STANDARD: Anteil Zufallsgegner von außerhalb des Elo-Bereichs
 		rivalGroupWeight: 1,      // Rivalen-Vorschläge: Zuschlag je gemeinsamer Gruppe (Schnittmenge), 0 = aus
+		shareUndecided: 0.1,      // Anteil unentschiedener Paare (gemischtes Ergebnis) und Widerspruchs-Dreierkreise
 		shareSimilar: 0.2,        // Anteil Gegner mit gleichem Wert bei den gewählten Vergleichs-Eigenschaften (matchTags)
 		matchTags: {},            // { "<Tab>": [Eigenschaftsnamen] }: bei ähnlichen Gegnern wird eine davon zufällig gewählt
 		bandsInCoverage: true,    // Rivalen-, Gruppen- und Ähnlich-Anteil auch im COVERAGE-Modus anwenden (dort: der am seltensten gespielte aus der Auswahl)
@@ -1311,6 +1312,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			rivalGroupWeight: num(r.rivalGroupWeight, 0, 100, d.rivalGroupWeight),
 			shareGroup: num(r.shareGroup, 0, 1, d.shareGroup),
 			shareSimilar: num(r.shareSimilar, 0, 1, d.shareSimilar),
+			shareUndecided: num(r.shareUndecided, 0, 1, d.shareUndecided),
 			bandsInCoverage: r.bandsInCoverage === undefined ? !!d.bandsInCoverage : (r.bandsInCoverage === true || r.bandsInCoverage === 'true'),
 			matchTags: {},
 			uncertainBelow: Math.round(num(r.uncertainBelow, 0, 500, d.uncertainBelow)),
@@ -1340,7 +1342,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		});
 		if (out.shareGroup + out.shareRival > 1) out.shareGroup = 1 - out.shareRival;
 		if (out.shareSimilar + out.shareRival + out.shareGroup > 1) out.shareSimilar = 1 - out.shareRival - out.shareGroup;
-		if (out.shareOutside + out.shareRival + out.shareGroup + out.shareSimilar > 1) out.shareOutside = 1 - out.shareRival - out.shareGroup - out.shareSimilar;
+		if (out.shareUndecided + out.shareSimilar + out.shareRival + out.shareGroup > 1) out.shareUndecided = 1 - out.shareRival - out.shareGroup - out.shareSimilar;
+		if (out.shareOutside + out.shareRival + out.shareGroup + out.shareSimilar + out.shareUndecided > 1) out.shareOutside = 1 - out.shareRival - out.shareGroup - out.shareSimilar - out.shareUndecided;
 		const mt = (r.matchTags && typeof r.matchTags === 'object') ? r.matchTags : (d.matchTags || {});
 		Object.keys(mt).forEach(tab => { if (Array.isArray(mt[tab])) { const l = [...new Set(mt[tab].map(String).filter(Boolean))]; if (l.length) out.matchTags[tab] = l; } });
 		const gr = (r.groupRules && typeof r.groupRules === 'object') ? r.groupRules : (d.groupRules || {});
@@ -1763,7 +1766,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		const matchIdx = await getMatchIndex();
 		const pw = document.getElementById('pick-why');
 		if (pw) {
-			const W = { rival: ['⚔️', 'Rivale'], group: ['👥', 'Gruppe'], similar: ['🔗', 'Ähnlich'], outside: ['🎲', 'Zufall'], elo: ['📊', 'Elo-Nähe'], cov: ['🧭', 'Abdeckung'] }[pickWhy && pickWhy.k];
+			const W = { rival: ['⚔️', 'Rivale'], group: ['👥', 'Gruppe'], similar: ['🔗', 'Ähnlich'], undecided: ['🤔', 'Unentschieden'], outside: ['🎲', 'Zufall'], elo: ['📊', 'Elo-Nähe'], cov: ['🧭', 'Abdeckung'] }[pickWhy && pickWhy.k];
 			pw.style.display = W ? 'inline-block' : 'none';
 			if (W) pw.textContent = W[0] + ' ' + W[1] + (pickWhy.d ? ' · ' + pickWhy.d : '');
 		}
@@ -1800,17 +1803,44 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	// Gezielte Gegnerwahl über die Würfelzahl 0..1: erst der Rivalen-Anteil, dann Gruppen, dann „ähnlich“ (gleicher Wert bei den Vergleichs-Eigenschaften).
 	// Gibt null zurück, wenn der Wurf in keinen dieser Anteile fällt oder es dort keine Kandidaten gibt.
 	let pickWhy = null; // Wie kam das aktuelle Duell zustande? {k, d}
+	// Siege/Niederlagen von x gegen jeden Gegner (aus Sicht von x)
+	function h2hTally(idx, x, memo) {
+		let t = memo.get(x); if (t) return t;
+		t = new Map();
+		matchesOf(idx, x).forEach(m => {
+			const xl = Number(m.leftId) === x, o = xl ? Number(m.rightId) : Number(m.leftId), r = t.get(o) || { w: 0, l: 0 };
+			if ((m.winnerId === 'left') === xl) r.w++; else r.l++;
+			t.set(o, r);
+		});
+		memo.set(x, t); return t;
+	}
+	// Unentschiedene Paare des linken Bilds: gemischtes Ergebnis (knapp, höchstens 5 Duelle) oder Teil eines Widerspruch-Dreierkreises
+	// (A schlägt B, B schlägt C, C schlägt A; je mind. 2 Duelle). Nach klaren Ergebnissen fällt ein Paar von selbst heraus.
+	function undecidedOpponents(left, pool, idx) {
+		const memo = new Map(), A = Number(left.id), tA = h2hTally(idx, A, memo), inPool = new Map(pool.map(c => [Number(c.id), c])), why = new Map();
+		tA.forEach((r, o) => { if (inPool.has(o) && r.w > 0 && r.l > 0 && Math.abs(r.w - r.l) <= 1 && r.w + r.l <= 5) why.set(o, 'unentschieden ' + r.w + ':' + r.l); });
+		const W = [], L = [];
+		tA.forEach((r, o) => { if (r.w + r.l >= 2 && r.w !== r.l) (r.w > r.l ? W : L).push(o); });
+		W.forEach(B => {
+			const tB = h2hTally(idx, B, memo);
+			L.forEach(C => {
+				const rec = tB.get(C); if (!rec || rec.w + rec.l < 2 || rec.w <= rec.l) return;
+				[B, C].forEach(x => { const r = tA.get(x); if (inPool.has(x) && !why.has(x) && r.w + r.l <= 6) why.set(x, 'Widerspruch (Dreierkreis)'); });
+			});
+		});
+		return { arr: [...why.keys()].map(id => inPool.get(id)), why: why };
+	}
 	function targetedOpponent(left, pool, matchIdx, roll) {
-		const R = settings.shareRival, G = R + settings.shareGroup, S = G + settings.shareSimilar;
-		if (roll >= S) return null;
-		let arr = [], viaTag = '';
+		const R = settings.shareRival, G = R + settings.shareGroup, S = G + settings.shareSimilar, U = S + settings.shareUndecided;
+		if (roll >= U) return null;
+		let arr = [], viaTag = '', undWhy = null;
 		if (roll < R) {
 			const ids = new Set((left.rivals || []).filter(r => r.status === 'confirmed').map(r => r.id));
 			arr = pool.filter(c => ids.has(c.id));
 		} else if (roll < G) {
 			const mine = new Set(getGroups(left).map(groupKey));
 			arr = mine.size ? pool.filter(c => getGroups(c).some(g => mine.has(groupKey(g)))) : [];
-		} else {
+		} else if (roll < S) {
 			const names = (settings.matchTags[left.tab] || []).filter(n => getTagValuesAs(left, n, 'multi').length);
 			const order = names.slice().sort(() => Math.random() - 0.5);
 			for (const n of order) {
@@ -1818,6 +1848,9 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 				arr = pool.filter(c => getTagValuesAs(c, n, 'multi').some(v => mine.has(tagKey(v))));
 				if (arr.length) { viaTag = n; break; }
 			}
+		} else {
+			const u = undecidedOpponents(left, pool, matchIdx);
+			arr = u.arr; undWhy = u.why;
 		}
 		if (!arr.length) return null;
 		const oppMap = opponentsOf(matchIdx, left.id), cnt = c => oppMap.get(Number(c.id)) || 0;
@@ -1827,6 +1860,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		else if (roll < G) {
 			const mine = new Set(getGroups(left).map(groupKey));
 			pickWhy = { k: 'group', d: getGroups(chosen).filter(g => mine.has(groupKey(g))).join(', ') };
+		} else if (roll >= S) {
+			pickWhy = { k: 'undecided', d: undWhy.get(Number(chosen.id)) || '' };
 		} else {
 			const mine = new Set(getTagValuesAs(left, viaTag, 'multi').map(tagKey));
 			pickWhy = { k: 'similar', d: viaTag + ': ' + getTagValuesAs(chosen, viaTag, 'multi').filter(v => mine.has(tagKey(v))).join(', ') };
@@ -1870,7 +1905,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		if (targeted) return targeted;
 
 		// 2. Zufälliger Gegner von außerhalb des Elo-Bereichs
-		const shareT = cfg.shareRival + cfg.shareGroup + settings.shareSimilar;
+		const shareT = cfg.shareRival + cfg.shareGroup + settings.shareSimilar + settings.shareUndecided;
 		if (roll >= shareT && roll < shareT + cfg.shareOutside && outside.length > 0) {
 			pickWhy = { k: 'outside', d: '' };
 			return pick(outside);
@@ -4065,6 +4100,9 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			'<input id="set-shareGroup" type="number" min="0" max="100" step="5" value="' + pct(settings.shareGroup) + '" onchange="updateShare(\'shareGroup\', this.value)" style="' + inp + ' width:90px;"></div>';
 		h += '<div style="' + row + '"><label for="set-shareSimilar">Anteil ähnlicher Gegner (%)</label>' +
 			'<input id="set-shareSimilar" type="number" min="0" max="100" step="5" value="' + pct(settings.shareSimilar) + '" onchange="updateShare(\'shareSimilar\', this.value)" style="' + inp + ' width:90px;"></div>';
+		h += '<div style="' + row + '"><label for="set-shareUndecided">Anteil unentschiedener Paare (%)</label>' +
+			'<input id="set-shareUndecided" type="number" min="0" max="100" step="5" value="' + pct(settings.shareUndecided) + '" onchange="updateShare(\'shareUndecided\', this.value)" style="' + inp + ' width:90px;"></div>';
+		h += '<div style="' + hint + ' margin:-4px 0 10px 0;">„Unentschieden“ = Paare mit gemischtem Ergebnis (z. B. 1:1, 2:1, 2:2; bis 5 Duelle) und Paare aus Widerspruchs-Dreierkreisen (A schlägt B, B schlägt C, C schlägt A).</div>';
 		const mtSel = new Set(settings.matchTags[currentTab] || []);
 		h += '<div style="' + hint + ' margin:0 0 6px 0;">„Ähnlich“ = gleicher Wert bei einer dieser Eigenschaften (Tab „' + escHtml(currentTab) + '“; pro Duell wird eine davon zufällig gewählt, z. B. Saison oder Verein):</div><div style="display:flex; flex-wrap:wrap; gap:6px 14px; margin-bottom:10px;">' +
 			(tagDefs.length ? tagDefs.map((d, di) => '<label style="display:inline-flex; align-items:center; gap:5px; cursor:pointer;"><input type="checkbox" ' + (mtSel.has(d.tagName) ? 'checked' : '') + ' onchange="toggleMatchTag(' + di + ', this.checked)">' + escHtml(d.tagName) + '</label>').join('') : '<span style="color:#555; font-style:italic;">Keine Eigenschaften in diesem Tab.</span>') + '</div>';
@@ -4077,7 +4115,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			'<input id="set-eloWindow" type="number" min="10" max="2000" step="10" value="' + settings.eloWindow + '" onchange="updateSetting(\'eloWindow\', this.value)" style="' + inp + ' width:90px;"></div>';
 		h += '<div style="' + row + '"><label for="set-shareOutside">Anteil von außerhalb des Elo-Bereichs (%)</label>' +
 			'<input id="set-shareOutside" type="number" min="0" max="100" step="5" value="' + pct(settings.shareOutside) + '" onchange="updateShare(\'shareOutside\', this.value)" style="' + inp + ' width:90px;"></div>';
-		h += '<div style="' + hint + '">Rest: <b id="set-shareNeighbor">' + (100 - pct(settings.shareRival) - pct(settings.shareOutside) - pct(settings.shareGroup) - pct(settings.shareSimilar)) + '</b> % Elo-Nachbarn</div>';
+		h += '<div style="' + hint + '">Rest: <b id="set-shareNeighbor">' + (100 - pct(settings.shareRival) - pct(settings.shareOutside) - pct(settings.shareGroup) - pct(settings.shareSimilar) - pct(settings.shareUndecided)) + '</b> % Elo-Nachbarn</div>';
 		h += '</div>';
 		h += '</div>';
 
@@ -4271,10 +4309,11 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		set('set-rivalGroupWeight', settings.rivalGroupWeight);
 		set('set-shareGroup', Math.round(settings.shareGroup * 100));
 		set('set-shareSimilar', Math.round(settings.shareSimilar * 100));
+		set('set-shareUndecided', Math.round(settings.shareUndecided * 100));
 		set('set-shareRival', Math.round(settings.shareRival * 100));
 		set('set-shareOutside', Math.round(settings.shareOutside * 100));
 		const nb = document.getElementById('set-shareNeighbor');
-		if (nb) nb.textContent = 100 - Math.round(settings.shareRival * 100) - Math.round(settings.shareOutside * 100) - Math.round(settings.shareGroup * 100) - Math.round(settings.shareSimilar * 100);
+		if (nb) nb.textContent = 100 - Math.round(settings.shareRival * 100) - Math.round(settings.shareOutside * 100) - Math.round(settings.shareGroup * 100) - Math.round(settings.shareSimilar * 100) - Math.round(settings.shareUndecided * 100);
 		const hintEl = document.getElementById('set-mode-hint');
 		if (hintEl) hintEl.textContent = MATCHUP_MODES[settings.matchupMode];
 		const std = document.getElementById('settings-standard');
