@@ -84,8 +84,9 @@
       return hit;
     }
 
-    const tx = db.transaction(['images', 'tagDefinitions'], 'readwrite');
+    const tx = db.transaction(['images', 'tagDefinitions', 'thumbs'], 'readwrite');
     const imgStore = tx.objectStore('images'), defStore = tx.objectStore('tagDefinitions');
+    const replaced = [];
     fresh.forEach(i => imgStore.put(i));   // nachgezogene Fingerabdrücke speichern
     // Eigenschaften des Reiters anlegen bzw. Auswahlwerte ergänzen
     const defByName = new Map(defs.map(d => [d.tagName, d]));
@@ -117,6 +118,14 @@
         const vals = (p.values || []).map(v => { const o = (d.options || []).find(x => tagKey(x) === tagKey(v)); return o !== undefined ? o : String(v); });
         setTagValuesAs(rec, p.name, d.type, d.type === 'multi' ? vals : vals.slice(0, 1));
       }
+      // Anderes Bild für einen verknüpften Eintrag: nur das Bild tauschen, Elo, Duelle und Eigenschaften bleiben
+      if (ex && it.replaceImage && (it.blob instanceof Blob || it.url)) {
+        rec.blob = it.blob instanceof Blob ? it.blob : it.url;
+        rec.hash = hashes.get(it) || '';
+        if (it.url) rec.sourceUrl = it.url; else delete rec.sourceUrl;
+        tx.objectStore('thumbs').delete(ex.id);
+        replaced.push(ex.id);
+      }
       if (it.profileUrl) {
         rec.links = Array.isArray(rec.links) ? rec.links.slice() : [];
         if (!rec.links.some(l => l && l.url === it.profileUrl)) rec.links.push({ url: it.profileUrl, icon: null });
@@ -125,7 +134,8 @@
       if (ex) { imgStore.put(rec); updated++; } else { imgStore.add(rec); added++; }
     }
     await done(tx);
-    return { tab, added, updated, skipped };
+    replaced.forEach(id => { try { forgetImage(id); } catch (e) {} });
+    return { tab, added, updated, skipped, replaced };
   }
 
   let busy = Promise.resolve();
@@ -154,9 +164,22 @@
         const last = results[results.length - 1];
         if (last && last.tab !== currentTab) switchTab(last.tab); else await refreshUI();
         try { renderTabs(); } catch (e) {}
+        // Läuft gerade ein Duell mit einem ausgetauschten Bild: Anzeige aktualisieren
+        const repl = new Set(results.flatMap(r => r.replaced || []));
+        if (repl.size) {
+          try {
+            const fresh = await all('images');
+            [['left', typeof curL !== 'undefined' ? curL : null], ['right', typeof curR !== 'undefined' ? curR : null]].forEach(([side, cur]) => {
+              if (!cur || !repl.has(cur.id)) return;
+              const f = fresh.find(i => i.id === cur.id); if (!f) return;
+              cur.blob = f.blob; cur.hash = f.hash; displaySide(side, cur);
+            });
+          } catch (e) { console.warn(e); }
+        }
         try { ensureThumbs(); } catch (e) {}
         if (window.RANKER_SYNC) window.RANKER_SYNC.changed();
-        note(`Aus dem Babe Organizer: ${a} neu, ${u} verknüpft/aktualisiert${sk ? `, ${sk} übersprungen (kein eindeutiges Bild)` : ''}${last ? ' – Reiter „' + last.tab + '“' : ''}.`, 6000);
+        const rp = results.reduce((s, r) => s + (r.replaced || []).length, 0);
+        note(`Aus dem Babe Organizer: ${a} neu, ${u} verknüpft/aktualisiert${rp ? `, ${rp} Bild${rp === 1 ? '' : 'er'} ersetzt` : ''}${sk ? `, ${sk} übersprungen (kein eindeutiges Bild)` : ''}${last ? ' – Reiter „' + last.tab + '“' : ''}.`, 6000);
         if (channel) channel.postMessage({ type: 'done', added: a, updated: u, skipped: sk });
       };
       // nur ein offener Ranker-Tab arbeitet die Aufträge ab
@@ -202,8 +225,15 @@
       a.target = '_blank'; a.rel = 'noopener';
       a.textContent = '🗂️ Im Babe Organizer öffnen';
       a.style.cssText = 'display:block;margin-top:5px;width:100%;box-sizing:border-box;padding:10px;text-align:center;border-radius:8px;border:1px solid #6b3a52;background:#3a2030;color:#f3c1d6;font-weight:bold;font-size:0.85em;text-decoration:none';
+      const b = document.createElement('a');
+      b.className = 'bo-link bo-pick';
+      b.href = '/b-organizer/#e=' + encodeURIComponent(im.boId) + '&pick=' + im.id + '&tab=' + encodeURIComponent(im.tab || 'Standard');
+      b.target = '_blank'; b.rel = 'noopener';
+      b.textContent = '🖼️ Anderes Bild wählen (Babe Organizer)';
+      b.style.cssText = a.style.cssText;
       const links = media.querySelector('img.dt-img + div');
       if (links && links.nextSibling) media.insertBefore(a, links.nextSibling); else media.appendChild(a);
+      a.after(b);
     };
   }
   if (typeof window.showDetailsByID === 'function') {

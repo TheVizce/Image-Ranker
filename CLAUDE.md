@@ -5,6 +5,7 @@
 - Sync liegt in `ranker-sync.js`: Ordner `image-ranker/` (64 Teildateien), `collections: images, matches, tagDefinitions (array), packs (map)`, Felder `settings`, `tabs`. Bilddateien gehen als Pakete (~10 MB, Format „IRP1“) ins private Repo `TheVizce/ranker-bilder`. Am Handy standardmäßig aus.
 - Der Ranker speichert an vielen Stellen direkt: `ranker-sync.js` prüft deshalb regelmäßig und beim Verlassen auf Änderungen. Neue Datenarten trotzdem in `getState`/`applyState` ergänzen.
 - `ranker-inbox.js` nimmt Aufträge aus dem Babe Organizer an (IndexedDB `tool-transfer`). Doppelte vermeiden: nur über `linkTo`, BO-ID, eindeutigen Profil-Link, Bild-Hash oder URL zuordnen, unklare Fälle überspringen.
+- Anderes Bild wählen: Knopf „Anderes Bild wählen“ in der Detailansicht öffnet den Babe Organizer mit `#e=<boId>&pick=<Ranker-ID>&tab=<Reiter>`. Der BO schickt einen Auftrag mit `replaceImage: true` und `linkTo`; `ranker-inbox.js` tauscht nur Bild, Fingerabdruck und Vorschaubild, Elo, Duelle und Eigenschaften bleiben.
 - Der Link „Im Babe Organizer öffnen“ ist ein eigener Knopf in der Detailansicht und gehört **nicht** in die normale Linkliste eines Bildes. Deep-Link `#bo=<id>`.
 
 ## Gemeinsame Regeln für alle Tools unter thevizce.github.io
