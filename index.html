@@ -1204,7 +1204,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
             const json = k => { try { return JSON.parse(raw(k)); } catch (e) { return undefined; } };
             const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
             const num = v => v !== null && v !== '' && isFinite(Number(v));
-            const SETTING_KEYS = ['matchupMode', 'focusMatches', 'eloWindow', 'shareOutside', 'shareRival', 'shareGroup', 'shareSimilar', 'shareUndecided', 'matchTags', 'bandsInCoverage', 'rivalGroupWeight', 'groupRules', 'uncertainBelow', 'newbieBoost', 'tabAccent', 'tagOrder', 'imageFit', 'dailyGoals', 'tagWeights'];
+            const SETTING_KEYS = ['matchupMode', 'focusMatches', 'eloWindow', 'shareOutside', 'shareRival', 'shareGroup', 'shareSimilar', 'shareUndecided', 'preferNewPair', 'matchTags', 'bandsInCoverage', 'rivalGroupWeight', 'groupRules', 'uncertainBelow', 'newbieBoost', 'tabAccent', 'tagOrder', 'imageFit', 'dailyGoals', 'tagWeights'];
             const checks = {
                 tabs: () => { const v = json('tabs'); return Array.isArray(v) && v.length > 0 && v.every(t => typeof t === 'string' && t); },
                 settings: () => { const v = json('settings'); return isObj(v) && Object.keys(v).length > 0 && Object.keys(v).every(k => SETTING_KEYS.includes(k)); },
@@ -1266,6 +1266,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		eloWindow: 100,           // STANDARD: "Gleicher Elo-Bereich" = +/- so viele Elo-Punkte
 		shareOutside: 0.25,       // STANDARD: Anteil Zufallsgegner von außerhalb des Elo-Bereichs
 		rivalGroupWeight: 1,      // Rivalen-Vorschläge: Zuschlag je gemeinsamer Gruppe (Schnittmenge), 0 = aus
+		preferNewPair: 0.7,       // Wahrscheinlichkeit, in den Bändern Elo-Nähe/Zufall nur noch nie gespielte Paare zu nehmen
 		shareUndecided: 0.1,      // Anteil unentschiedener Paare (gemischtes Ergebnis) und Widerspruchs-Dreierkreise
 		shareSimilar: 0.2,        // Anteil Gegner mit gleichem Wert bei den gewählten Vergleichs-Eigenschaften (matchTags)
 		matchTags: {},            // { "<Tab>": [Eigenschaftsnamen] }: bei ähnlichen Gegnern wird eine davon zufällig gewählt
@@ -1283,7 +1284,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	};
 
 	const MATCHUP_MODES = {
-		STANDARD: "Mischung aus Elo-Nachbarn, Zufallsgegnern von außerhalb des Elo-Bereichs und Rivalen.",
+		STANDARD: "Mischung aus gezielten Gegnern (Rivalen, Gruppe, ähnlich, unentschieden), Elo-Nachbarn und Zufallsgegnern von außerhalb des Elo-Bereichs.",
 		COVERAGE: "Lässt Bilder gegen Gegner antreten, die sie noch nicht kennen, um die Abdeckung hochzutreiben. Die Elo spielt dabei keine Rolle."
 	};
 
@@ -1315,6 +1316,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			shareGroup: num(r.shareGroup, 0, 1, d.shareGroup),
 			shareSimilar: num(r.shareSimilar, 0, 1, d.shareSimilar),
 			shareUndecided: num(r.shareUndecided, 0, 1, d.shareUndecided),
+			preferNewPair: num(r.preferNewPair, 0, 1, d.preferNewPair),
 			bandsInCoverage: r.bandsInCoverage === undefined ? !!d.bandsInCoverage : (r.bandsInCoverage === true || r.bandsInCoverage === 'true'),
 			matchTags: {},
 			uncertainBelow: Math.round(num(r.uncertainBelow, 0, 500, d.uncertainBelow)),
@@ -1881,6 +1883,16 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			shareGroup: settings.shareGroup
 		};
 		const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+		// Untergeordnete Vorliebe: mit der eingestellten Wahrscheinlichkeit nur Gegner nehmen, gegen die noch nie gespielt wurde
+		const oppMap = opponentsOf(matchIdx, left.id);
+		let wasNew = false;
+		const pickPref = arr => {
+			if (Math.random() < settings.preferNewPair) {
+				const fresh = arr.filter(c => !oppMap.get(Number(c.id)));
+				if (fresh.length) { wasNew = true; return pick(fresh); }
+			}
+			const c = pick(arr); wasNew = !oppMap.get(Number(c.id)); return c;
+		};
 
 		// Wiederholungssperre (nur, wenn dadurch noch Kandidaten übrig bleiben)
 		let pool = candidates;
@@ -1909,13 +1921,14 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		// 2. Zufälliger Gegner von außerhalb des Elo-Bereichs
 		const shareT = cfg.shareRival + cfg.shareGroup + settings.shareSimilar + settings.shareUndecided;
 		if (roll >= shareT && roll < shareT + cfg.shareOutside && outside.length > 0) {
-			pickWhy = { k: 'outside', d: '' };
-			return pick(outside);
+			const o = pickPref(outside);
+			pickWhy = { k: 'outside', d: wasNew ? 'neues Paar' : 'schon gespielt' };
+			return o;
 		}
 
 		// 3. Elo-Nachbar (auch Fallback für alle anderen Fälle)
-		const nb = pick(neighbors.length > 0 ? neighbors : pool);
-		pickWhy = { k: 'elo', d: 'Δ ' + Math.round(Math.abs(nb.elo - left.elo)) + ' Elo' };
+		const nb = pickPref(neighbors.length > 0 ? neighbors : pool);
+		pickWhy = { k: 'elo', d: 'Δ ' + Math.round(Math.abs(nb.elo - left.elo)) + ' Elo' + (wasNew ? ' · neues Paar' : ' · schon gespielt') };
 		return nb;
 	}
 
@@ -4091,38 +4104,42 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		h += '<h2 style="margin:0 0 20px 0;">⚙️ Einstellungen</h2>';
 
 		// --- Matchmaking ---
+		const nrow = (id, label, desc, key, extra) => '<div style="' + row + ' margin-bottom:2px;"><label for="' + id + '">' + label + '</label>' +
+			'<input id="' + id + '" type="number" min="0" max="100" step="5" value="' + pct(settings[key]) + '" onchange="updateShare(\'' + key + '\', this.value)" style="' + inp + ' width:80px;"></div>' +
+			'<div style="' + hint + ' margin:0 0 12px 0;">' + desc + '</div>';
+		const mtSel = new Set(settings.matchTags[currentTab] || []);
 		h += '<div style="' + box + '">';
 		h += '<h3 style="' + title + '">Matchmaking</h3>';
 		h += '<div style="' + row + '"><label for="set-matchupMode"><b>Matchup-Modus</b></label>' +
 			'<select id="set-matchupMode" onchange="updateSetting(\'matchupMode\', this.value)" style="' + inp + '">' +
 				Object.keys(MATCHUP_MODES).map(m => '<option value="' + m + '"' + (settings.matchupMode === m ? ' selected' : '') + '>' + m + '</option>').join('') +
 			'</select></div>';
-		h += '<div id="set-mode-hint" style="' + hint + ' margin:-4px 0 12px 0;">' + escHtml(MATCHUP_MODES[settings.matchupMode]) + '</div>';
+		h += '<div id="set-mode-hint" style="' + hint + ' margin:-4px 0 14px 0;">' + escHtml(MATCHUP_MODES[settings.matchupMode]) + '</div>';
 
-		h += '<div style="border-top:1px solid #222; padding-top:12px;">';
-		h += '<div style="' + hint + ' margin:0 0 10px 0;"><b>Gezielte Gegner</b> – gelten im STANDARD-Modus und, wenn unten angehakt, auch im COVERAGE-Modus. Gewählt wird jeweils der, gegen den am seltensten gespielt wurde.</div>';
-		h += '<div style="' + row + '"><label for="set-shareRival">Anteil Rivalen (%)</label>' +
-			'<input id="set-shareRival" type="number" min="0" max="100" step="5" value="' + pct(settings.shareRival) + '" onchange="updateShare(\'shareRival\', this.value)" style="' + inp + ' width:90px;"></div>';
-		h += '<div style="' + row + '"><label for="set-shareGroup">Anteil Gruppenmitglieder (%)</label>' +
-			'<input id="set-shareGroup" type="number" min="0" max="100" step="5" value="' + pct(settings.shareGroup) + '" onchange="updateShare(\'shareGroup\', this.value)" style="' + inp + ' width:90px;"></div>';
-		h += '<div style="' + row + '"><label for="set-shareSimilar">Anteil ähnlicher Gegner (%)</label>' +
-			'<input id="set-shareSimilar" type="number" min="0" max="100" step="5" value="' + pct(settings.shareSimilar) + '" onchange="updateShare(\'shareSimilar\', this.value)" style="' + inp + ' width:90px;"></div>';
-		h += '<div style="' + row + '"><label for="set-shareUndecided">Anteil unentschiedener Paare (%)</label>' +
-			'<input id="set-shareUndecided" type="number" min="0" max="100" step="5" value="' + pct(settings.shareUndecided) + '" onchange="updateShare(\'shareUndecided\', this.value)" style="' + inp + ' width:90px;"></div>';
-		h += '<div style="' + hint + ' margin:-4px 0 10px 0;">„Unentschieden“ = Paare mit gemischtem Ergebnis (z. B. 1:1, 2:1, 2:2; bis 5 Duelle) und Paare aus Widerspruchs-Dreierkreisen (A schlägt B, B schlägt C, C schlägt A).</div>';
-		const mtSel = new Set(settings.matchTags[currentTab] || []);
-		h += '<div style="' + hint + ' margin:0 0 6px 0;">„Ähnlich“ = gleicher Wert bei einer dieser Eigenschaften (Tab „' + escHtml(currentTab) + '“; pro Duell wird eine davon zufällig gewählt, z. B. Saison oder Verein):</div><div style="display:flex; flex-wrap:wrap; gap:6px 14px; margin-bottom:10px;">' +
-			(tagDefs.length ? tagDefs.map((d, di) => '<label style="display:inline-flex; align-items:center; gap:5px; cursor:pointer;"><input type="checkbox" ' + (mtSel.has(d.tagName) ? 'checked' : '') + ' onchange="toggleMatchTag(' + di + ', this.checked)">' + escHtml(d.tagName) + '</label>').join('') : '<span style="color:#555; font-style:italic;">Keine Eigenschaften in diesem Tab.</span>') + '</div>';
-		h += '<div style="' + row + '"><label for="set-bandsInCoverage">Auch im COVERAGE-Modus anwenden</label>' +
+		// Verteilung auf einen Blick
+		h += '<div style="border-top:1px solid #222; padding-top:12px;"><div style="color:#aaa; font-size:0.85em; margin-bottom:6px;"><b>Wer kommt als Gegner?</b> (Verteilung bei jedem Duell)</div>';
+		h += '<div id="set-sharebar">' + shareBarHtml() + '</div>';
+
+		h += '<div style="' + hint + ' margin:12px 0 10px 0;">Zuerst wird gewürfelt, <b>welche Art</b> Gegner kommt. Diese vier gezielten Arten wählen jeweils den Gegner, gegen den am seltensten gespielt wurde:</div>';
+		h += nrow('set-shareRival', '⚔️ Rivalen (%)', 'Bestätigte Rivalen des linken Bilds.', 'shareRival');
+		h += nrow('set-shareGroup', '👥 Gruppenmitglieder (%)', 'Bilder, die mindestens eine Gruppe mit dem linken Bild teilen.', 'shareGroup');
+		h += nrow('set-shareSimilar', '🔗 Ähnliche (%)', 'Gleicher Wert bei einer der Eigenschaften unten (pro Duell wird eine davon zufällig gewählt).', 'shareSimilar');
+		h += '<div style="display:flex; flex-wrap:wrap; gap:6px 14px; margin:-4px 0 14px 0;">' +
+			(tagDefs.length ? tagDefs.map((d, di) => '<label style="display:inline-flex; align-items:center; gap:5px; cursor:pointer; font-size:0.9em;"><input type="checkbox" ' + (mtSel.has(d.tagName) ? 'checked' : '') + ' onchange="toggleMatchTag(' + di + ', this.checked)">' + escHtml(d.tagName) + '</label>').join('') : '<span style="color:#555; font-size:0.85em;">In diesem Tab gibt es noch keine Eigenschaften.</span>') +
+			'</div><div style="' + hint + ' margin:-8px 0 12px 0;">Ankreuzen gilt für den Tab „' + escHtml(currentTab) + '“.</div>';
+		h += nrow('set-shareUndecided', '🤔 Unentschiedene Paare (%)', 'Paare mit knappem, gemischtem Ergebnis (z. B. 1:1, 2:1, 2:2; bis 5 Duelle) und Paare aus Widerspruchs-Dreierkreisen (A schlägt B, B schlägt C, C schlägt A).', 'shareUndecided');
+		h += '<div style="' + row + '"><label for="set-bandsInCoverage">Gezielte Arten auch im COVERAGE-Modus anwenden</label>' +
 			'<input id="set-bandsInCoverage" type="checkbox" ' + (settings.bandsInCoverage ? 'checked' : '') + ' onchange="updateSetting(\'bandsInCoverage\', this.checked)"></div>';
+		h += '<div style="' + hint + ' margin:-4px 0 4px 0;">Trifft keine gezielte Art zu (oder gibt es keinen passenden Gegner), geht es mit dem Rest weiter: im COVERAGE-Modus mit der Abdeckung, im STANDARD-Modus wie unten.</div>';
 		h += '</div>';
-		h += '<div id="settings-standard" style="border-top:1px solid #222; padding-top:12px; opacity:' + (settings.matchupMode === 'STANDARD' ? '1' : '0.45') + ';">';
-		h += '<div style="' + hint + ' margin:0 0 10px 0;">STANDARD-Modus (wirkt nur, wenn er aktiv ist)</div>';
-		h += '<div style="' + row + '"><label for="set-eloWindow">Elo-Bereich (± Punkte)</label>' +
-			'<input id="set-eloWindow" type="number" min="10" max="2000" step="10" value="' + settings.eloWindow + '" onchange="updateSetting(\'eloWindow\', this.value)" style="' + inp + ' width:90px;"></div>';
-		h += '<div style="' + row + '"><label for="set-shareOutside">Anteil von außerhalb des Elo-Bereichs (%)</label>' +
-			'<input id="set-shareOutside" type="number" min="0" max="100" step="5" value="' + pct(settings.shareOutside) + '" onchange="updateShare(\'shareOutside\', this.value)" style="' + inp + ' width:90px;"></div>';
-		h += '<div style="' + hint + '">Rest: <b id="set-shareNeighbor">' + (100 - pct(settings.shareRival) - pct(settings.shareOutside) - pct(settings.shareGroup) - pct(settings.shareSimilar) - pct(settings.shareUndecided)) + '</b> % Elo-Nachbarn</div>';
+
+		h += '<div id="settings-standard" style="border-top:1px solid #222; padding-top:12px; margin-top:12px; opacity:' + (settings.matchupMode === 'STANDARD' ? '1' : '0.45') + ';">';
+		h += '<div style="color:#aaa; font-size:0.85em; margin-bottom:8px;"><b>Der Rest im STANDARD-Modus</b> (wirkt nur, wenn er aktiv ist)</div>';
+		h += '<div style="' + row + ' margin-bottom:2px;"><label for="set-eloWindow">📊 Elo-Bereich (± Punkte)</label>' +
+			'<input id="set-eloWindow" type="number" min="10" max="2000" step="10" value="' + settings.eloWindow + '" onchange="updateSetting(\'eloWindow\', this.value)" style="' + inp + ' width:80px;"></div>';
+		h += '<div style="' + hint + ' margin:0 0 12px 0;">Der Rest geht an Gegner mit ähnlicher Elo (Elo-Nähe): <b id="set-shareNeighbor">' + (100 - pct(settings.shareRival) - pct(settings.shareOutside) - pct(settings.shareGroup) - pct(settings.shareSimilar) - pct(settings.shareUndecided)) + '</b> %.</div>';
+		h += nrow('set-shareOutside', '🎲 Zufall von außerhalb (%)', 'Gegner außerhalb des Elo-Bereichs, damit auch weit entfernte Bilder mal aufeinandertreffen.', 'shareOutside');
+		h += nrow('set-preferNewPair', '🆕 Neue Paare bevorzugen (%)', 'Gilt innerhalb von Elo-Nähe und Zufall: mit dieser Wahrscheinlichkeit kommt nur ein Gegner infrage, gegen den noch nie gespielt wurde (sofern es einen gibt). Den Rest dürfen Wiederholungen sein.', 'preferNewPair');
 		h += '</div>';
 		h += '</div>';
 
@@ -4303,6 +4320,19 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		if (l.size) settings.matchTags[currentTab] = [...l]; else delete settings.matchTags[currentTab];
 		saveSettings();
 	}
+	// Verteilung der Gegner-Arten als farbiger Balken mit Legende (aus den aktuellen Einstellungen)
+	function shareBarHtml() {
+		const st = settings.matchupMode === 'STANDARD', useBands = st || settings.bandsInCoverage;
+		const segs = [];
+		if (useBands) segs.push(['⚔️ Rivalen', settings.shareRival, '#e0566b'], ['👥 Gruppe', settings.shareGroup, '#4fb477'], ['🔗 Ähnlich', settings.shareSimilar, '#5b8def'], ['🤔 Unentschieden', settings.shareUndecided, '#c58af9']);
+		if (st) segs.push(['🎲 Zufall', settings.shareOutside, '#8d8d8d']);
+		const used = segs.reduce((a, x) => a + x[1], 0);
+		segs.push([st ? '📊 Elo-Nähe' : '🧭 Abdeckung', Math.max(0, 1 - used), st ? '#e7b04a' : '#2fb5b0']);
+		return '<div style="display:flex; height:14px; border-radius:7px; overflow:hidden; background:#222;">' +
+			segs.filter(x => x[1] > 0).map(x => '<div title="' + x[0] + ' ' + Math.round(x[1] * 100) + ' %" style="width:' + (x[1] * 100) + '%; background:' + x[2] + ';"></div>').join('') + '</div>' +
+			'<div style="display:flex; flex-wrap:wrap; gap:4px 14px; margin-top:6px; font-size:0.78em; color:#aaa;">' +
+			segs.map(x => '<span><i style="display:inline-block; width:9px; height:9px; border-radius:50%; background:' + x[2] + '; margin-right:4px;"></i>' + x[0] + ' <b style="color:#ddd;">' + Math.round(x[1] * 100) + ' %</b></span>').join('') + '</div>';
+	}
 	function updateShare(key, percentRaw) {
 		const n = Number(percentRaw);
 		updateSetting(key, (percentRaw === '' || !isFinite(n)) ? '' : n / 100);
@@ -4319,6 +4349,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		set('set-shareUndecided', Math.round(settings.shareUndecided * 100));
 		set('set-shareRival', Math.round(settings.shareRival * 100));
 		set('set-shareOutside', Math.round(settings.shareOutside * 100));
+		set('set-preferNewPair', Math.round(settings.preferNewPair * 100));
+		const sb = document.getElementById('set-sharebar'); if (sb) sb.innerHTML = shareBarHtml();
 		const nb = document.getElementById('set-shareNeighbor');
 		if (nb) nb.textContent = 100 - Math.round(settings.shareRival * 100) - Math.round(settings.shareOutside * 100) - Math.round(settings.shareGroup * 100) - Math.round(settings.shareSimilar * 100) - Math.round(settings.shareUndecided * 100);
 		const hintEl = document.getElementById('set-mode-hint');
