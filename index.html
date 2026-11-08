@@ -1204,7 +1204,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
             const json = k => { try { return JSON.parse(raw(k)); } catch (e) { return undefined; } };
             const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
             const num = v => v !== null && v !== '' && isFinite(Number(v));
-            const SETTING_KEYS = ['matchupMode', 'focusMatches', 'eloWindow', 'shareOutside', 'shareRival', 'shareGroup', 'shareSimilar', 'shareUndecided', 'preferNewPair', 'matchTags', 'bandsInCoverage', 'rivalGroupWeight', 'groupRules', 'uncertainBelow', 'newbieBoost', 'tabAccent', 'tagOrder', 'imageFit', 'dailyGoals', 'tagWeights'];
+            const SETTING_KEYS = ['matchupMode', 'focusMatches', 'eloWindow', 'shareOutside', 'shareRival', 'shareGroup', 'shareSimilar', 'shareUndecided', 'preferNewPair', 'placementShare', 'matchTags', 'bandsInCoverage', 'rivalGroupWeight', 'groupRules', 'uncertainBelow', 'newbieBoost', 'tabAccent', 'tagOrder', 'imageFit', 'dailyGoals', 'tagWeights'];
             const checks = {
                 tabs: () => { const v = json('tabs'); return Array.isArray(v) && v.length > 0 && v.every(t => typeof t === 'string' && t); },
                 settings: () => { const v = json('settings'); return isObj(v) && Object.keys(v).length > 0 && Object.keys(v).every(k => SETTING_KEYS.includes(k)); },
@@ -1266,6 +1266,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		eloWindow: 100,           // STANDARD: "Gleicher Elo-Bereich" = +/- so viele Elo-Punkte
 		shareOutside: 0.25,       // STANDARD: Anteil Zufallsgegner von außerhalb des Elo-Bereichs
 		rivalGroupWeight: 1,      // Rivalen-Vorschläge: Zuschlag je gemeinsamer Gruppe (Schnittmenge), 0 = aus
+		placementShare: 0.8,      // Wahrscheinlichkeit, ein Bild mit wenigen Duellen per Binärsuche gezielt einzuordnen
 		preferNewPair: 0.7,       // Wahrscheinlichkeit, in den Bändern Elo-Nähe/Zufall nur noch nie gespielte Paare zu nehmen
 		shareUndecided: 0.1,      // Anteil unentschiedener Paare (gemischtes Ergebnis) und Widerspruchs-Dreierkreise
 		shareSimilar: 0.2,        // Anteil Gegner mit gleichem Wert bei den gewählten Vergleichs-Eigenschaften (matchTags)
@@ -1317,6 +1318,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			shareSimilar: num(r.shareSimilar, 0, 1, d.shareSimilar),
 			shareUndecided: num(r.shareUndecided, 0, 1, d.shareUndecided),
 			preferNewPair: num(r.preferNewPair, 0, 1, d.preferNewPair),
+			placementShare: num(r.placementShare, 0, 1, d.placementShare),
 			bandsInCoverage: r.bandsInCoverage === undefined ? !!d.bandsInCoverage : (r.bandsInCoverage === true || r.bandsInCoverage === 'true'),
 			matchTags: {},
 			uncertainBelow: Math.round(num(r.uncertainBelow, 0, 500, d.uncertainBelow)),
@@ -1770,9 +1772,10 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		const matchIdx = await getMatchIndex();
 		const pw = document.getElementById('pick-why');
 		if (pw) {
-			const W = { rival: ['⚔️', 'Rivale'], group: ['👥', 'Gruppe'], similar: ['🔗', 'Ähnlich'], undecided: ['🤔', 'Unentschieden'], outside: ['🎲', 'Zufall'], elo: ['📊', 'Elo-Nähe'], cov: ['🧭', 'Abdeckung'] }[pickWhy && pickWhy.k];
+			const W = { place: ['📍', 'Einordnen'], cycle: ['🔁', 'Widerspruch klären'], rival: ['⚔️', 'Rivale'], group: ['👥', 'Gruppe'], similar: ['🔗', 'Ähnlich'], undecided: ['🤔', 'Unentschieden'], outside: ['🎲', 'Zufall'], elo: ['📊', 'Elo-Nähe'], cov: ['🧭', 'Abdeckung'] }[pickWhy && pickWhy.k];
 			pw.style.display = W ? 'inline-block' : 'none';
 			if (W) pw.textContent = W[0] + ' ' + W[1] + (pickWhy.d ? ' · ' + pickWhy.d : '');
+			if (W && pickWhy.k === 'cycle') { const x = document.createElement('span'); x.textContent = ' ✕ beenden'; x.style.cssText = 'cursor:pointer; margin-left:6px; color:#f0a0a0;'; x.onclick = stopPairQueue; pw.appendChild(x); }
 		}
 		const rb = document.getElementById('rival-badge');
 		if (rb) {
@@ -1807,6 +1810,36 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	// Gezielte Gegnerwahl über die Würfelzahl 0..1: erst der Rivalen-Anteil, dann Gruppen, dann „ähnlich“ (gleicher Wert bei den Vergleichs-Eigenschaften).
 	// Gibt null zurück, wenn der Wurf in keinen dieser Anteile fällt oder es dort keine Kandidaten gibt.
 	let pickWhy = null; // Wie kam das aktuelle Duell zustande? {k, d}
+	let pairQueue = [], pairQueueTotal = 0; // erzwungene Paare (Widersprüche klären)
+	// Platzierungsphase: Ein Bild mit wenigen Duellen (unter „Noch unsicher“) wird per Binärsuche in die Rangliste der
+	// etablierten Bilder einsortiert. Aus seinen bisherigen Duellen gegen etablierte Bilder ergibt sich das Intervall, in
+	// das es passt; der nächste Gegner liegt in der Mitte davon. Ist das Intervall aufgebraucht, übernimmt das normale Matchmaking.
+	function placementOpponent(left, pool, matchIdx) {
+		const U = settings.uncertainBelow;
+		if (!(settings.placementShare > 0) || !(U > 0) || (left.wins + left.losses) >= U) return null;
+		if (Math.random() >= settings.placementShare) return null;
+		const est = pool.filter(c => c.id !== left.id && (c.wins + c.losses) >= U);   // pool ist nach Elo absteigend sortiert
+		if (est.length < 8) return null;
+		const idxOf = new Map(est.map((c, i) => [Number(c.id), i]));
+		let lo = 0, hi = est.length; // mögliche Einfügepositionen: lo..hi (vor est[pos])
+		[...matchesOf(matchIdx, left.id)].sort((a, b) => (a.time || 0) - (b.time || 0)).forEach(m => {
+			const meL = Number(m.leftId) === Number(left.id), i = idxOf.get(Number(meL ? m.rightId : m.leftId));
+			if (i === undefined) return;
+			const won = (m.winnerId === 'left') === meL;
+			let nlo = lo, nhi = hi;
+			if (won) nhi = Math.min(nhi, i); else nlo = Math.max(nlo, i + 1);
+			if (nlo > nhi) { nlo = won ? 0 : i + 1; nhi = won ? i : est.length; } // Widerspruch: mit diesem Duell neu ansetzen
+			lo = nlo; hi = nhi;
+		});
+		if (hi - lo < 1) return null; // eingeordnet
+		const mid = Math.min(hi - 1, Math.floor((lo + hi) / 2)), oppMap = opponentsOf(matchIdx, left.id);
+		const near = [mid - 1, mid, mid + 1].filter(j => j >= lo && j <= hi - 1).map(j => est[j]);
+		const fresh = near.filter(c => !oppMap.get(Number(c.id)));
+		const arr = fresh.length ? fresh : near;
+		const chosen = arr[Math.floor(Math.random() * arr.length)];
+		pickWhy = { k: 'place', d: 'Plätze ' + (lo + 1) + '–' + (hi + 1) + ' von ' + (est.length + 1) };
+		return chosen;
+	}
 	// Siege/Niederlagen von x gegen jeden Gegner (aus Sicht von x)
 	function h2hTally(idx, x, memo) {
 		let t = memo.get(x); if (t) return t;
@@ -1932,6 +1965,19 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		return nb;
 	}
 
+	function startPairQueue(pairs) {
+		const seen = new Set(), q = [];
+		pairs.forEach(p => { const k = Math.min(p[0], p[1]) + '|' + Math.max(p[0], p[1]); if (!seen.has(k)) { seen.add(k); q.push([p[0], p[1]]); } });
+		if (!q.length) return;
+		pairQueue = q; pairQueueTotal = q.length;
+		closeModal(); loadMatchup();
+	}
+	function stopPairQueue() { pairQueue = []; pairQueueTotal = 0; loadMatchup(); }
+	function startCycleQueue(i) {
+		const c = i === -1 ? lastCycles.all : [lastCycles.all[i]];
+		const pairs = []; c.forEach(cy => { if (cy) pairs.push([cy.ids[0], cy.ids[1]], [cy.ids[1], cy.ids[2]], [cy.ids[2], cy.ids[0]]); });
+		startPairQueue(i === -1 ? pairs.slice(0, 60) : pairs);
+	}
 	function isSamePair(pair, idA, idB) {
 		return (pair[0] == idA && pair[1] == idB) || (pair[0] == idB && pair[1] == idA);
 	}
@@ -1968,6 +2014,17 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
             if (a && b && a.id !== b.id) { curL = a; curR = b; }
         }
     
+        // Widersprüche klären: erzwungene Paare der Reihe nach
+        let queuedWhy = null;
+        while (!curL && pairQueue.length) {
+            const q = pairQueue.shift();
+            const a = list.find(i => i.id == q[0]), b = list.find(i => i.id == q[1]);
+            if (!a || !b || a.id === b.id) continue;
+            const flip = Math.random() < 0.5;
+            curL = flip ? b : a; curR = flip ? a : b;
+            queuedWhy = { k: 'cycle', d: (pairQueueTotal - pairQueue.length) + '/' + pairQueueTotal };
+        }
+
         // --- 1. LINKES BILD (CURL) BESTIMMEN ---
         if (!curL && focusCount > 0 && focusId !== null) {
             curL = list.find(i => i.id == focusId);
@@ -2004,6 +2061,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
         pickWhy = null;
         let potR = pool.filter(i => i.id !== curL.id);
         if (potR.length === 0) return;
+        if (queuedWhy) pickWhy = queuedWhy;
+        if (!curR) curR = placementOpponent(curL, potR, matchIdx);
         
         if (!curR && settings.matchupMode === "COVERAGE" && settings.bandsInCoverage) {
             // Gezielt: Rivale / Gruppe / ähnlich (der am seltensten gespielte daraus); sonst wie bisher nach Abdeckung
@@ -4127,6 +4186,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		h += '<div style="display:flex; flex-wrap:wrap; gap:6px 14px; margin:-4px 0 14px 0;">' +
 			(tagDefs.length ? tagDefs.map((d, di) => '<label style="display:inline-flex; align-items:center; gap:5px; cursor:pointer; font-size:0.9em;"><input type="checkbox" ' + (mtSel.has(d.tagName) ? 'checked' : '') + ' onchange="toggleMatchTag(' + di + ', this.checked)">' + escHtml(d.tagName) + '</label>').join('') : '<span style="color:#555; font-size:0.85em;">In diesem Tab gibt es noch keine Eigenschaften.</span>') +
 			'</div><div style="' + hint + ' margin:-8px 0 12px 0;">Ankreuzen gilt für den Tab „' + escHtml(currentTab) + '“.</div>';
+		h += nrow('set-placementShare', '📍 Neulinge einordnen (%)', 'Bilder mit weniger Duellen als bei „Noch unsicher“ (unten) werden mit dieser Wahrscheinlichkeit per Binärsuche einsortiert: Der Gegner liegt jeweils in der Mitte des Bereichs, in den das Bild nach seinen bisherigen Duellen gehört. So findet es seinen Platz mit wenigen Duellen. Gilt in beiden Modi und vor allen anderen Arten.', 'placementShare');
 		h += nrow('set-shareUndecided', '🤔 Unentschiedene Paare (%)', 'Paare mit knappem, gemischtem Ergebnis (z. B. 1:1, 2:1, 2:2; bis 5 Duelle) und Paare aus Widerspruchs-Dreierkreisen (A schlägt B, B schlägt C, C schlägt A).', 'shareUndecided');
 		h += '<div style="' + row + '"><label for="set-bandsInCoverage">Gezielte Arten auch im COVERAGE-Modus anwenden</label>' +
 			'<input id="set-bandsInCoverage" type="checkbox" ' + (settings.bandsInCoverage ? 'checked' : '') + ' onchange="updateSetting(\'bandsInCoverage\', this.checked)"></div>';
@@ -4350,6 +4410,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		set('set-shareRival', Math.round(settings.shareRival * 100));
 		set('set-shareOutside', Math.round(settings.shareOutside * 100));
 		set('set-preferNewPair', Math.round(settings.preferNewPair * 100));
+		set('set-placementShare', Math.round(settings.placementShare * 100));
 		const sb = document.getElementById('set-sharebar'); if (sb) sb.innerHTML = shareBarHtml();
 		const nb = document.getElementById('set-shareNeighbor');
 		if (nb) nb.textContent = 100 - Math.round(settings.shareRival * 100) - Math.round(settings.shareOutside * 100) - Math.round(settings.shareGroup * 100) - Math.round(settings.shareSimilar * 100) - Math.round(settings.shareUndecided * 100);
@@ -4764,6 +4825,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		if (atCut === null) atCut = { elo: new Map(elo), seen: new Set(seen) };
 		return { now: elo, cut: atCut.elo, cutSeen: atCut.seen };
 	}
+	let lastCycles = { all: [] };
 	function findInconsistencies(list, matches) {
 		const names = new Map(list.map(i => [i.id, i.name]));
 		const pair = new Map();
@@ -4791,7 +4853,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			});
 		}));
 		out.sort((x, y) => y.games - x.games);
-		return { cycles: out.length, top: out.slice(0, 6).map(c => ({ names: c.ids.map(i => names.get(i)), ids: c.ids, games: c.games })) };
+		lastCycles = { all: out };
+		return { cycles: out.length, top: out.slice(0, 6).map((c, k) => ({ names: c.ids.map(i => names.get(i)), ids: c.ids, games: c.games, k: k })) };
 	}
 	function buildStatsInsights(list, matches) {
 		const box = 'background:var(--surface, #1b1b1b); padding:15px; border-radius:16px; border:1px solid var(--line, #2a2a2a); margin-bottom:20px;';
@@ -4815,7 +4878,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		if (!inc.cycles) h += '<div style="color:#888; font-size:0.9em;">Keine Dreierkreise gefunden – die Ergebnisse sind stimmig.</div>';
 		else {
 			h += '<div style="color:#888; font-size:0.85em; margin-bottom:6px;">' + inc.cycles + (inc.cycles === 1 ? ' Dreierkreis' : ' Dreierkreise') + ' (nur Paarungen mit mindestens 2 Duellen und klarem Sieger). Die auffälligsten:</div>';
-			inc.top.forEach(c => { h += '<div style="font-size:0.9em; padding:2px 0;">' + c.ids.map((id, k) => link(id, c.names[k])).join(' <span style="color:#777;">›</span> ') + ' <span style="color:#777;">› </span>' + link(c.ids[0], c.names[0]) + ' <span style="color:#666; font-size:0.85em;">(' + c.games + ' Duelle)</span></div>'; });
+			inc.top.forEach(c => { h += '<div style="font-size:0.9em; padding:2px 0;">' + c.ids.map((id, k) => link(id, c.names[k])).join(' <span style="color:#777;">›</span> ') + ' <span style="color:#777;">› </span>' + link(c.ids[0], c.names[0]) + ' <span style="color:#666; font-size:0.85em;">(' + c.games + ' Duelle)</span><button class="nav-btn" style="padding:2px 10px; font-size:0.85em; margin-left:8px;" onclick="startCycleQueue(' + c.k + ')" title="Die drei Paare dieses Kreises nacheinander als Duelle spielen">Klären</button></div>'; });
+			h += '<div style="margin-top:10px;"><button class="nav-btn" onclick="startCycleQueue(-1)" title="Die Paare aller Kreise nacheinander spielen (höchstens 60 Paare)">🔁 Alle Kreise klären</button></div>';
 		}
 		h += '</div>';
 		// Unsichere
@@ -6395,7 +6459,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		const rankOf = new Map(imgs.map((im, i) => [im.id, i + 1]));
 		const overall = imgs.reduce((a, i) => a + i.elo, 0) / (imgs.length || 1);
 		const groups = new Map(); // key -> { label, items: [] }
-		const add = (key, label, im) => { if (!groups.has(key)) groups.set(key, { label: label, items: [] }); groups.get(key).items.push(im); };
+		const keysOf = new Map(); // Bild-ID -> Gruppenschlüssel (für den Direktvergleich)
+		const add = (key, label, im) => { if (!groups.has(key)) groups.set(key, { label: label, items: [] }); groups.get(key).items.push(im); if (!keysOf.has(im.id)) keysOf.set(im.id, new Set()); keysOf.get(im.id).add(key); };
 		let corr = null;
 
 		if (type === 'number') {
@@ -6427,11 +6492,20 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			groups.forEach((g, k) => { if (g.items.length === 0) groups.delete(k); });
 		}
 
+		// Direktvergleich: Duelle, in denen der Wert nur auf einer Seite vorkommt (Wert gegen anderen Wert)
+		const direct = new Map();
+		(await getMatches()).forEach(m => {
+			const kl = keysOf.get(m.leftId), kr = keysOf.get(m.rightId); if (!kl || !kr) return;
+			const leftWon = m.winnerId === 'left';
+			const bump = (ks, others, won) => ks.forEach(k => { if (k === '__none__' || others.has(k)) return; const d = direct.get(k) || { w: 0, l: 0 }; if (won) d.w++; else d.l++; direct.set(k, d); });
+			bump(kl, kr, leftWon); bump(kr, kl, !leftWon);
+		});
 		tagStatsRows = [...groups.entries()].map(([key, g]) => {
 			const elos = g.items.map(i => i.elo), w = g.items.reduce((a, i) => a + i.wins, 0), l = g.items.reduce((a, i) => a + i.losses, 0);
 			const best = g.items.reduce((a, i) => (rankOf.get(i.id) < rankOf.get(a.id) ? i : a), g.items[0]);
 			return { key: key, label: g.label, none: key === '__none__', count: g.items.length, avg: elos.reduce((a, b) => a + b, 0) / elos.length,
-				med: medianOf(elos), win: (w + l) ? w / (w + l) : null, best: best, bestRank: rankOf.get(best.id) };
+				med: medianOf(elos), win: (w + l) ? w / (w + l) : null, best: best, bestRank: rankOf.get(best.id),
+				dn: (direct.get(key) ? direct.get(key).w + direct.get(key).l : 0), direct: (direct.get(key) && direct.get(key).w + direct.get(key).l) ? direct.get(key).w / (direct.get(key).w + direct.get(key).l) : null };
 		});
 
 		let h = '<div style="max-width:760px; margin:0 auto;"><h2 style="margin:0 0 10px 0;">🏷️ Tag-Statistik (Tab „' + escHtml(currentTab) + '“)</h2>';
@@ -6443,6 +6517,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			h += '<div style="background:#111; border:1px solid #222; border-radius:8px; padding:8px 12px; margin-bottom:12px;">Korrelation Wert ↔ Elo: <b>' + (Math.round(r * 100) / 100) + '</b> (' + strength + (r > 0.2 ? ', höhere Werte haben tendenziell mehr Elo' : r < -0.2 ? ', höhere Werte haben tendenziell weniger Elo' : '') + '), n = ' + corr.n + '</div>';
 		}
 		if (type === 'multi') h += '<div style="color:#666; font-size:0.8em; margin-bottom:8px;">Bilder mit mehreren Werten zählen in jeder ihrer Gruppen mit.</div>';
+		h += '<div style="color:#666; font-size:0.8em; margin-bottom:8px;"><b>Siegquote</b> zählt alle Duelle der Bilder dieses Werts. <b>Direkt</b> zählt nur Duelle gegen Bilder mit einem <i>anderen</i> Wert (in Klammern: Anzahl) und zeigt, welcher Wert sich tatsächlich durchsetzt, wenn beide aufeinandertreffen.</div>';
 		h += '<div id="tag-stats-table"></div></div>';
 		showModal(h);
 		window._tagStatsOverall = overall;
@@ -6465,7 +6540,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		});
 		const th = (k, label, al) => '<th onclick="sortTagStats(\'' + k + '\')" style="cursor:pointer; padding:6px 8px; text-align:' + (al || 'right') + ';">' + label + (key === k ? (dir < 0 ? ' ▼' : ' ▲') : '') + '</th>';
 		let h = '<table style="width:100%; border-collapse:collapse;"><thead><tr style="color:#888; font-size:0.8em; border-bottom:1px solid #333;">' +
-			th('label', 'Wert', 'left') + th('count', 'Bilder') + th('avg', 'Ø Elo') + th('med', 'Median') + th('win', 'Siegquote') + th('bestRank', 'Bestes Bild', 'left') + '</tr></thead><tbody>';
+			th('label', 'Wert', 'left') + th('count', 'Bilder') + th('avg', 'Ø Elo') + th('med', 'Median') + th('win', 'Siegquote') + th('direct', 'Direkt') + th('bestRank', 'Bestes Bild', 'left') + '</tr></thead><tbody>';
 		const ov = window._tagStatsOverall;
 		rows.forEach(r => {
 			const d = Math.round(r.avg - ov);
@@ -6475,6 +6550,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 				'<td style="padding:6px 8px; text-align:right;"><b>' + Math.round(r.avg) + '</b> <span style="font-size:0.8em; color:' + (d > 0 ? 'var(--win, #2ecc71)' : d < 0 ? 'var(--loss, #e74c3c)' : '#888') + ';">' + (d > 0 ? '+' : '') + d + '</span></td>' +
 				'<td style="padding:6px 8px; text-align:right;">' + Math.round(r.med) + '</td>' +
 				'<td style="padding:6px 8px; text-align:right;">' + (r.win === null ? '–' : Math.round(r.win * 100) + ' %') + '</td>' +
+				'<td style="padding:6px 8px; text-align:right;" title="Siegquote nur in Duellen gegen Bilder mit einem anderen Wert (' + r.dn + ' Duelle)">' + (r.direct === null ? '–' : '<b>' + Math.round(r.direct * 100) + ' %</b> <span style="font-size:0.75em; color:#777;">(' + r.dn + ')</span>') + '</td>' +
 				'<td style="padding:6px 8px;"><a href="#" onclick="showDetailsByID(' + r.best.id + '); return false;" title="Details öffnen" style="color:inherit; text-decoration:underline dotted; text-underline-offset:3px; cursor:pointer;">' + escHtml(r.best.name || '') + '</a> <span style="color:#777; font-size:0.8em;">(#' + r.bestRank + ')</span></td></tr>';
 		});
 		el.innerHTML = h + '</tbody></table>';
