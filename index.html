@@ -1204,7 +1204,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
             const json = k => { try { return JSON.parse(raw(k)); } catch (e) { return undefined; } };
             const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
             const num = v => v !== null && v !== '' && isFinite(Number(v));
-            const SETTING_KEYS = ['matchupMode', 'focusMatches', 'eloWindow', 'shareOutside', 'shareRival', 'shareGroup', 'shareSimilar', 'shareUndecided', 'preferNewPair', 'placementShare', 'matchTags', 'bandsInCoverage', 'rivalGroupWeight', 'groupRules', 'uncertainBelow', 'newbieBoost', 'tabAccent', 'tagOrder', 'imageFit', 'dailyGoals', 'tagWeights'];
+            const SETTING_KEYS = ['matchupMode', 'focusMatches', 'eloWindow', 'shareOutside', 'shareRival', 'shareGroup', 'shareSimilar', 'shareUndecided', 'preferNewPair', 'placementShare', 'newcomerFirst', 'matchTags', 'bandsInCoverage', 'rivalGroupWeight', 'groupRules', 'uncertainBelow', 'newbieBoost', 'tabAccent', 'tagOrder', 'imageFit', 'dailyGoals', 'tagWeights'];
             const checks = {
                 tabs: () => { const v = json('tabs'); return Array.isArray(v) && v.length > 0 && v.every(t => typeof t === 'string' && t); },
                 settings: () => { const v = json('settings'); return isObj(v) && Object.keys(v).length > 0 && Object.keys(v).every(k => SETTING_KEYS.includes(k)); },
@@ -1266,6 +1266,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		eloWindow: 100,           // STANDARD: "Gleicher Elo-Bereich" = +/- so viele Elo-Punkte
 		shareOutside: 0.25,       // STANDARD: Anteil Zufallsgegner von außerhalb des Elo-Bereichs
 		rivalGroupWeight: 1,      // Rivalen-Vorschläge: Zuschlag je gemeinsamer Gruppe (Schnittmenge), 0 = aus
+		newcomerFirst: 0.5,       // STANDARD: Wahrscheinlichkeit, dass ein Bild mit wenigen Duellen links steht
 		placementShare: 0.8,      // Wahrscheinlichkeit, ein Bild mit wenigen Duellen per Binärsuche gezielt einzuordnen
 		preferNewPair: 0.7,       // Wahrscheinlichkeit, in den Bändern Elo-Nähe/Zufall nur noch nie gespielte Paare zu nehmen
 		shareUndecided: 0.1,      // Anteil unentschiedener Paare (gemischtes Ergebnis) und Widerspruchs-Dreierkreise
@@ -1319,6 +1320,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			shareUndecided: num(r.shareUndecided, 0, 1, d.shareUndecided),
 			preferNewPair: num(r.preferNewPair, 0, 1, d.preferNewPair),
 			placementShare: num(r.placementShare, 0, 1, d.placementShare),
+			newcomerFirst: num(r.newcomerFirst, 0, 1, d.newcomerFirst),
 			bandsInCoverage: r.bandsInCoverage === undefined ? !!d.bandsInCoverage : (r.bandsInCoverage === true || r.bandsInCoverage === 'true'),
 			matchTags: {},
 			uncertainBelow: Math.round(num(r.uncertainBelow, 0, 500, d.uncertainBelow)),
@@ -2046,6 +2048,16 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
             } 
             
             // Fallback: Wenn STANDARD aktiv ist ODER die Modus-Sortierung oben kein Bild geliefert hat
+            // Neulinge zuerst (STANDARD): Bild mit wenigen Duellen (unter „Noch unsicher“), bevorzugt das mit den wenigsten
+            if (!curL && settings.uncertainBelow > 0 && settings.newcomerFirst > 0 && Math.random() < settings.newcomerFirst) {
+                const fresh = pool.filter(i => (i.wins + i.losses) < settings.uncertainBelow);
+                if (fresh.length) {
+                    const minD = Math.min(...fresh.map(i => i.wins + i.losses));
+                    const least = fresh.filter(i => (i.wins + i.losses) === minD);
+                    curL = least[Math.floor(Math.random() * least.length)];
+                    pickWhy = null;
+                }
+            }
             if (!curL) {
                 const avgM = pool.reduce((s, i) => s + (i.wins + i.losses), 0) / pool.length;
                 const underdogs = pool.filter(i => (i.wins + i.losses) < avgM);
@@ -4186,13 +4198,16 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		h += '<div style="display:flex; flex-wrap:wrap; gap:6px 14px; margin:-4px 0 14px 0;">' +
 			(tagDefs.length ? tagDefs.map((d, di) => '<label style="display:inline-flex; align-items:center; gap:5px; cursor:pointer; font-size:0.9em;"><input type="checkbox" ' + (mtSel.has(d.tagName) ? 'checked' : '') + ' onchange="toggleMatchTag(' + di + ', this.checked)">' + escHtml(d.tagName) + '</label>').join('') : '<span style="color:#555; font-size:0.85em;">In diesem Tab gibt es noch keine Eigenschaften.</span>') +
 			'</div><div style="' + hint + ' margin:-8px 0 12px 0;">Ankreuzen gilt für den Tab „' + escHtml(currentTab) + '“.</div>';
-		h += nrow('set-placementShare', '📍 Neulinge einordnen (%)', 'Bilder mit weniger Duellen als bei „Noch unsicher“ (unten) werden mit dieser Wahrscheinlichkeit per Binärsuche einsortiert: Der Gegner liegt jeweils in der Mitte des Bereichs, in den das Bild nach seinen bisherigen Duellen gehört. So findet es seinen Platz mit wenigen Duellen. Gilt in beiden Modi und vor allen anderen Arten.', 'placementShare');
 		h += nrow('set-shareUndecided', '🤔 Unentschiedene Paare (%)', 'Paare mit knappem, gemischtem Ergebnis (z. B. 1:1, 2:1, 2:2; bis 5 Duelle) und Paare aus Widerspruchs-Dreierkreisen (A schlägt B, B schlägt C, C schlägt A).', 'shareUndecided');
 		h += '<div style="' + row + '"><label for="set-bandsInCoverage">Gezielte Arten auch im COVERAGE-Modus anwenden</label>' +
 			'<input id="set-bandsInCoverage" type="checkbox" ' + (settings.bandsInCoverage ? 'checked' : '') + ' onchange="updateSetting(\'bandsInCoverage\', this.checked)"></div>';
 		h += '<div style="' + hint + ' margin:-4px 0 4px 0;">Trifft keine gezielte Art zu (oder gibt es keinen passenden Gegner), geht es mit dem Rest weiter: im COVERAGE-Modus mit der Abdeckung, im STANDARD-Modus wie unten.</div>';
 		h += '</div>';
 
+		h += '<div style="border-top:1px solid #222; padding-top:12px; margin-top:12px;"><div style="color:#aaa; font-size:0.85em; margin-bottom:8px;"><b>📍 Neulinge</b> (Bilder mit weniger Duellen als bei „Noch unsicher“ unten)</div>';
+		h += nrow('set-placementShare', 'Neulinge einordnen (%)', 'Wahrscheinlichkeit, dass ein Neuling per Binärsuche einsortiert wird: Sein Gegner liegt jeweils in der Mitte des Bereichs der etablierten Rangliste, in den er nach seinen bisherigen Duellen gehört. So findet er mit wenigen Duellen (etwa 10) seinen Platz. Gilt in beiden Modi, wenn der Neuling links steht, und vor allen anderen Arten.', 'placementShare');
+		h += nrow('set-newcomerFirst', 'Neulinge zuerst (%)', 'Nur STANDARD: Wahrscheinlichkeit, dass ein Neuling links steht (der mit den wenigsten Duellen). Im COVERAGE-Modus stehen Bilder mit den wenigsten Gegnern ohnehin zuerst.', 'newcomerFirst');
+		h += '</div>';
 		h += '<div id="settings-standard" style="border-top:1px solid #222; padding-top:12px; margin-top:12px; opacity:' + (settings.matchupMode === 'STANDARD' ? '1' : '0.45') + ';">';
 		h += '<div style="color:#aaa; font-size:0.85em; margin-bottom:8px;"><b>Der Rest im STANDARD-Modus</b> (wirkt nur, wenn er aktiv ist)</div>';
 		h += '<div style="' + row + ' margin-bottom:2px;"><label for="set-eloWindow">📊 Elo-Bereich (± Punkte)</label>' +
@@ -4411,6 +4426,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		set('set-shareOutside', Math.round(settings.shareOutside * 100));
 		set('set-preferNewPair', Math.round(settings.preferNewPair * 100));
 		set('set-placementShare', Math.round(settings.placementShare * 100));
+		set('set-newcomerFirst', Math.round(settings.newcomerFirst * 100));
 		const sb = document.getElementById('set-sharebar'); if (sb) sb.innerHTML = shareBarHtml();
 		const nb = document.getElementById('set-shareNeighbor');
 		if (nb) nb.textContent = 100 - Math.round(settings.shareRival * 100) - Math.round(settings.shareOutside * 100) - Math.round(settings.shareGroup * 100) - Math.round(settings.shareSimilar * 100) - Math.round(settings.shareUndecided * 100);
