@@ -4367,6 +4367,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		h += '<div style="' + hint + '">Das Backup ist eine ZIP-Datei mit Bildern, Duellen, Eigenschaften und diesen Einstellungen. Alte JSON-Backups lassen sich weiter importieren.</div>';
 		h += '</div>';
 
+		h += cloudSettingsHtml(box, title, hint);
 		h += '<div style="' + box + '"><h3 style="' + title + '">Speicher</h3><div id="storage-info" style="' + hint + ' margin-top:0;">wird geprüft…</div>' +
 			'<div style="' + hint + '">Bilder, Duelle und Eigenschaften liegen in der Browser-Datenbank (IndexedDB „ImageRankerDB“), kleine Einstellungen im localStorage mit dem Präfix „ranker.“. Regelmäßig ein Backup exportieren schützt vor Verlust.</div></div>';
 		h += '<div style="text-align:right;"><button class="secondary" onclick="resetSettings()">Einstellungen auf Standard zurücksetzen</button></div>';
@@ -4411,6 +4412,32 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	function updateShare(key, percentRaw) {
 		const n = Number(percentRaw);
 		updateSetting(key, (percentRaw === '' || !isFinite(n)) ? '' : n / 100);
+	}
+
+	// ===== Cloud-Abgleich (Einstellungen) =====
+	function isMobileDevice() { return /iPhone|iPad|Android/.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent)); }
+	function cloudSettingsHtml(box, title, hint) {
+		const mobile = isMobileDevice(); let on = false; try { on = localStorage.getItem('ranker.syncOnMobile') === '1'; } catch (e) {}
+		const active = !!window.RANKER_SYNC;
+		let o = '<div style="' + box + '"><h3 style="' + title + '">☁︎ Cloud-Abgleich</h3>';
+		if (mobile) {
+			o += '<label style="display:flex; gap:10px; align-items:flex-start; cursor:pointer;"><input type="checkbox" id="set-syncMobile" ' + (on ? 'checked' : '') + ' onchange="setMobileSync(this.checked)" style="margin-top:4px;"><span>Auf diesem Gerät mit der Cloud abgleichen' +
+				'<div style="' + hint + '">Beim ersten Mal werden alle Bilder geladen (viele hundert MB, am besten im WLAN). Das läuft in Etappen, bei einem Abbruch geht es später weiter. Danach werden nur noch Änderungen geholt. Voraussetzung: Token und Repo sind auf der Startseite eingetragen. Für dauerhaften Speicher die Seite als Home-Bildschirm-App öffnen.</div></span></label>';
+		} else {
+			o += '<div style="' + hint + ' margin-top:0;">Der Abgleich ist auf diesem Gerät ' + (active ? 'aktiv' : 'nicht aktiv (Token und Repo auf der Startseite eintragen)') + '. Abgeglichen wird beim Start, beim Zurückkehren in die App und beim Verlassen der Seite.</div>';
+		}
+		if (active) {
+			o += '<div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:12px;"><button class="secondary" onclick="RANKER_SYNC.syncNow(); closeModal();">☁︎ Jetzt abgleichen</button>' +
+				'<button class="secondary" onclick="RankerSyncBackup.download().catch(e => alert(e.message))">💾 Sicherheitskopie vor letzter Übernahme</button></div>' +
+				'<div style="' + hint + '">Vor jeder Übernahme aus der Cloud wird automatisch eine Kopie (ohne Bilder) gespeichert, falls etwas Unerwartetes passiert.</div>';
+		}
+		return o + '</div>';
+	}
+	function setMobileSync(on) {
+		try { localStorage.setItem('ranker.syncOnMobile', on ? '1' : '0'); } catch (e) { alert('Konnte die Einstellung nicht speichern: ' + e.message); return; }
+		if (on && navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+		if (confirm(on ? 'Die Seite wird neu geladen und beginnt mit dem Abgleich. Fortfahren?' : 'Die Seite wird neu geladen. Bereits geladene Bilder bleiben auf dem Gerät. Fortfahren?')) location.reload();
+		else { const c = document.getElementById('set-syncMobile'); if (c) c.checked = !on; try { localStorage.setItem('ranker.syncOnMobile', on ? '0' : '1'); } catch (e) {} }
 	}
 
 	function syncSettingsInputs() {

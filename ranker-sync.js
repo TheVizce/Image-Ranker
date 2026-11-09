@@ -21,7 +21,7 @@
 
   const TOOL = 'image-ranker';
   const IMG_REPO = 'ranker-bilder';
-  const PACK_MAX = 10 * 1024 * 1024;
+  const PACK_MAX = Number(localStorage.getItem('ranker.packMax')) || 10 * 1024 * 1024;   // (Testschalter)
   const URL_RETRY_MS = 7 * 864e5;     // fehlgeschlagene URL-Downloads frühestens nach einer Woche erneut versuchen
   const GH = ToolSync.github;
 
@@ -30,8 +30,8 @@
   function openOwn() {
     if (ownDb) return ownDb;
     ownDb = new Promise((res, rej) => {
-      const r = indexedDB.open('ranker-sync', 1);
-      r.onupgradeneeded = () => { const d = r.result; for (const n of ['sha', 'kv']) if (!d.objectStoreNames.contains(n)) d.createObjectStore(n); };
+      const r = indexedDB.open('ranker-sync', 2);
+      r.onupgradeneeded = () => { const d = r.result; for (const n of ['sha', 'kv', 'blobs']) if (!d.objectStoreNames.contains(n)) d.createObjectStore(n); };
       r.onsuccess = () => { const d = r.result; d.onversionchange = () => { d.close(); ownDb = null; }; res(d); };
       r.onerror = () => { ownDb = null; rej(r.error); };
     });
@@ -68,7 +68,7 @@
     } catch (e) {}
     return nativeFetch(input, init);
   };
-  const busy = t => { try { if (typeof showBusy === 'function') showBusy(t || ''); } catch (e) {} };
+  const busy = t => { try { if (typeof showBusy === 'function') showBusy(t || ''); } catch (e) {} lockText(t); };
 
   /* ---------- SHA-256 der Bilddateien (zwischengespeichert pro Bild-ID) ---------- */
   async function sha256(blob) {
@@ -177,6 +177,7 @@
       const batch = []; let size = 0;
       while (todo.length && (!batch.length || size + todo[0].blob.size <= PACK_MAX)) { const t = todo.shift(); batch.push(t); size += t.blob.size; }
       const name = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7) + '.bin';
+      checkCancel();
       progress(`Lade Bilder hoch… ${(sent / 1e6).toFixed(0)} / ${(total / 1e6).toFixed(0)} MB`);
       await uploadPack(cfg, name, await buildPack(batch));
       for (const t of batch) packs[t.sha] = name;
@@ -230,20 +231,26 @@
   };
 
   /* ---------- Sperre während des Abgleichs ---------- */
-  let lockEl = null, lockTimer = null;
+  let lockEl = null, lockTimer = null, cancelRequested = false;
+  const lockText = t => { if (lockEl && t && lockEl.style.display !== 'none') lockEl.querySelector('.t').textContent = '☁︎ ' + t; };
+  const checkCancel = () => { if (cancelRequested) throw GH.error('Abgleich abgebrochen. Beim nächsten Start geht es dort weiter, wo es aufgehört hat.'); };
   function setLock(on, text) {
     if (!lockEl) {
       lockEl = document.createElement('div'); lockEl.id = 'sync-lock';
       lockEl.style.cssText = 'position:fixed;inset:0;z-index:2147482000;display:none;align-items:center;justify-content:center;background:transparent;touch-action:none;';
-      lockEl.innerHTML = '<div style="background:rgba(20,22,28,.94);color:#e8eaf0;border:1px solid #2d3240;border-radius:12px;padding:14px 20px;font:14px/1.4 system-ui,-apple-system,sans-serif;max-width:80vw;text-align:center;visibility:hidden;"></div>';
+      lockEl.innerHTML = '<div style="background:rgba(20,22,28,.94);color:#e8eaf0;border:1px solid #2d3240;border-radius:12px;padding:14px 20px;font:14px/1.4 system-ui,-apple-system,sans-serif;max-width:80vw;text-align:center;visibility:hidden;"><div class="t"></div>' +
+        '<div style="margin-top:6px;font-size:12px;color:#9aa1b2;">Einmalig beim ersten Laden dauert es länger. Der Stand wird bei Abbruch später fortgesetzt.</div>' +
+        '<button style="margin-top:10px;font:inherit;color:#e8eaf0;background:#222631;border:1px solid #2d3240;border-radius:8px;padding:6px 14px;cursor:pointer;">Abbrechen</button></div>';
       document.body.appendChild(lockEl);
+      lockEl.querySelector('button').onclick = () => { cancelRequested = true; lockEl.querySelector('button').textContent = 'Wird abgebrochen…'; };
     }
     const box = lockEl.firstChild;
     if (on) {
-      lockEl.style.display = 'flex'; box.textContent = '☁︎ ' + (text && text !== 'syncing' ? text : 'Gleiche ab…');
+      lockEl.style.display = 'flex'; lockText(text && text !== 'syncing' ? text : 'Gleiche ab…');
       if (!lockTimer) lockTimer = setTimeout(() => { box.style.visibility = 'visible'; }, 700);   // kurze Abgleiche bleiben unsichtbar
     } else {
-      lockEl.style.display = 'none'; box.style.visibility = 'hidden';
+      lockEl.style.display = 'none'; box.style.visibility = 'hidden'; cancelRequested = false;
+      const cb = lockEl.querySelector('button'); if (cb) cb.textContent = 'Abbrechen';
       clearTimeout(lockTimer); lockTimer = null;
     }
   }
@@ -300,22 +307,39 @@
       if (!need.has(p)) need.set(p, []);
       need.get(p).push(r._blob);
     }
-    let pi = 0;
-    for (const [p] of need) {
-      busy(`Lade Bilder aus der Cloud… Paket ${++pi} / ${need.size}`);
+    // Pakete einzeln laden und sofort in den Zwischenspeicher legen (nicht alles im Arbeitsspeicher). Bricht es ab, geht es beim nächsten Mal dort weiter.
+    const staged = new Set(await own('blobs', 'readonly', s => s.getAllKeys()));
+    let pi = 0, doneMB = 0;
+    const totalPacks = need.size;
+    for (const [p, shas] of need) {
+      pi++;
+      const want = [...new Set(shas)];
+      if (want.every(x => staged.has(x))) continue;
+      checkCancel();
+      busy(`Lade Bilder aus der Cloud… Paket ${pi} / ${totalPacks}` + (doneMB ? ` (${doneMB.toFixed(0)} MB)` : ''));
       const got = await downloadPack(cfg, p);
-      got.forEach((b, sha) => { if (!blobBySha.has(sha)) blobBySha.set(sha, b); });
+      for (const sha of want) {
+        const b = got.get(sha);
+        if (!b) throw ToolSync.github.error('Ein Bild fehlt im Bildpaket ' + p + '. Auf dem anderen Gerät den Image Ranker öffnen, bis der Upload fertig ist.', { retry: true });
+        doneMB += b.size / 1e6;
+      }
+      await own('blobs', 'readwrite', st => { for (const sha of want) st.put(got.get(sha), sha); });
+      want.forEach(x => staged.add(x));
     }
+    const stageLeft = new Map();    // wie viele Einträge brauchen noch den zwischengespeicherten Wert
+    for (const r of data.images || []) if (r._blob && !blobBySha.has(r._blob)) stageLeft.set(r._blob, (stageLeft.get(r._blob) || 0) + 1);
 
     // Unterschiede schreiben
     const H = o => JSON.stringify(o);
     const imgPut = [], thumbDel = [];
     const remoteIds = new Set();
+    const shaFresh = [];
     let kept = 0;    // lokale Änderungen, die während des Abgleichs entstanden sind und deshalb bleiben
     for (const r of data.images || []) {
       remoteIds.add(r.id);
       const rec = Object.assign({}, r); delete rec._blob; delete rec._link;
       rec.blob = r._blob ? blobBySha.get(r._blob) : (r._link || '');
+      if (r._blob && !rec.blob) rec._stage = r._blob;
       const l = localById.get(r.id);
       if (l) {
         const lm = Object.assign({}, l); delete lm.blob;
@@ -334,10 +358,23 @@
 
     for (let i = 0; i < imgPut.length; i += 25) {
       busy(`Übernehme Bilder… ${Math.min(i + 25, imgPut.length)} / ${imgPut.length}`);
+      const part = imgPut.slice(i, i + 25), freed = [];
+      for (const r of part) {
+        if (r._stage) {
+          const b = await own('blobs', 'readonly', st => st.get(r._stage));
+          if (!b) throw ToolSync.github.error('Zwischengespeichertes Bild fehlt – bitte erneut abgleichen.', { retry: true });
+          shaFresh.push([r.id, { sha: r._stage, size: b.size, type: b.type }]);
+          r.blob = b; freed.push(r._stage); delete r._stage;
+        }
+      }
       const t = d.transaction(['images', 'thumbs'], 'readwrite');
-      imgPut.slice(i, i + 25).forEach(r => t.objectStore('images').put(r));
+      part.forEach(r => t.objectStore('images').put(r));
       await waitT(t);
+      const del = [];
+      for (const sha of freed) { const n = (stageLeft.get(sha) || 1) - 1; stageLeft.set(sha, n); if (n <= 0) del.push(sha); }
+      if (del.length) await own('blobs', 'readwrite', st => { del.forEach(x => st.delete(x)); });
     }
+    if (shaFresh.length) await own('sha', 'readwrite', st => { for (const [k, v] of shaFresh) st.put(v, k); });   // die Prüfsummen sind bekannt: nicht neu berechnen
     if (imgDel.length || thumbDel.length) {
       const t = d.transaction(['images', 'thumbs'], 'readwrite');
       imgDel.forEach(id => { t.objectStore('images').delete(id); t.objectStore('thumbs').delete(id); });
@@ -365,6 +402,7 @@
     if (data.settings !== undefined) lsSet('settings', JSON.stringify(data.settings));
     if (data.tabs !== undefined) lsSet('tabs', JSON.stringify(data.tabs));
     await kvSet('packs', packs);
+    await own('blobs', 'readwrite', st => { st.clear(); });
     busy('');
     needReload = true;
     return true;
