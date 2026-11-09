@@ -22,7 +22,6 @@
   const TOOL = 'image-ranker';
   const IMG_REPO = 'ranker-bilder';
   const PACK_MAX = 10 * 1024 * 1024;
-  const POLL_MS = 120000;
   const URL_RETRY_MS = 7 * 864e5;     // fehlgeschlagene URL-Downloads frühestens nach einer Woche erneut versuchen
   const GH = ToolSync.github;
 
@@ -56,6 +55,19 @@
   }
   const getAll = (d, store) => new Promise((res, rej) => { const r = d.transaction(store).objectStore(store).getAll(); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
   const waitT = t => new Promise((res, rej) => { t.oncomplete = () => res(); t.onerror = t.onabort = () => rej(t.error || new Error('Schreibvorgang abgebrochen')); });
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const fastHash = str => { let h1 = 0xdeadbeef, h2 = 0x41c6ce57; for (let i = 0; i < str.length; i++) { const c = str.charCodeAt(i); h1 = Math.imul(h1 ^ c, 2654435761); h2 = Math.imul(h2 ^ c, 1597334677); } return (h1 >>> 0).toString(36) + (h2 >>> 0).toString(36) + str.length.toString(36); };
+  // GitHub-API-Anfragen (außer Bildpakete) bekommen ein Zeitlimit, damit die Sperre bei schlechtem Netz nicht ewig dauert
+  const nativeFetch = window.fetch.bind(window);
+  window.fetch = function (input, init) {
+    try {
+      const u = typeof input === 'string' ? input : (input && input.url) || '';
+      if (u.indexOf('https://api.github.com/') === 0 && u.indexOf('/packs/') < 0 && !(init && init.signal) && window.AbortSignal && AbortSignal.timeout) {
+        init = Object.assign({}, init, { signal: AbortSignal.timeout(40000) });
+      }
+    } catch (e) {}
+    return nativeFetch(input, init);
+  };
   const busy = t => { try { if (typeof showBusy === 'function') showBusy(t || ''); } catch (e) {} };
 
   /* ---------- SHA-256 der Bilddateien (zwischengespeichert pro Bild-ID) ---------- */
@@ -175,20 +187,84 @@
 
   /* ---------- Stand für den Sync ---------- */
   const parse = s => { try { return s ? JSON.parse(s) : undefined; } catch (e) { return undefined; } };
+  // Was beim letzten Lesen für den Abgleich lokal vorhanden war: damit erkennt die Übernahme, was DANACH (während des Abgleichs) verändert wurde
+  let snap = null;
   async function getState() {
     const d = await rankerDb();
     const [imgs, matches, tagDefinitions] = await Promise.all([getAll(d, 'images'), getAll(d, 'matches'), getAll(d, 'tagDefinitions')]);
     const shas = await shaMap(imgs);
+    snap = { img: new Map(), match: new Set() };
     const images = imgs.map(im => {
       const m = Object.assign({}, im); delete m.blob;
+      snap.img.set(im.id, fastHash(JSON.stringify(m)));
       if (im.blob instanceof Blob) m._blob = shas.get(im.id); else m._link = typeof im.blob === 'string' ? im.blob : '';
       return m;
     });
+    matches.forEach(x => snap.match.add(x.id));
     const st = { images, matches, tagDefinitions, packs: (await kvGet('packs')) || {} };
     const settings = parse(lsGet('settings')), tabs = parse(lsGet('tabs'));
     if (settings !== undefined) st.settings = settings;
     if (tabs !== undefined) st.tabs = tabs;
     return st;
+  }
+
+  /* ---------- Sicherheitskopie vor jeder Übernahme (die letzten zwei, ohne Bilddateien) ---------- */
+  async function backupBeforeApply(d, localImgs) {
+    try {
+      const [matches, tagDefinitions] = await Promise.all([getAll(d, 'matches'), getAll(d, 'tagDefinitions')]);
+      if (!localImgs.length && !matches.length) return;      // leeres Gerät: nichts zu sichern
+      const n = ((await kvGet('backupN')) || 0) + 1;
+      const images = localImgs.map(im => { const m = Object.assign({}, im); delete m.blob; return m; });
+      await kvSet('backup' + (n % 2), { at: new Date().toISOString(), images, matches, tagDefinitions, settings: parse(lsGet('settings')), tabs: parse(lsGet('tabs')) });
+      await kvSet('backupN', n);
+    } catch (e) { console.warn('ranker-sync: Sicherheitskopie fehlgeschlagen', e); }
+  }
+  window.RankerSyncBackup = {
+    async info() { const o = []; for (const k of ['backup0', 'backup1']) { const b = await kvGet(k); if (b) o.push({ key: k, at: b.at, images: b.images.length, matches: b.matches.length }); } return o; },
+    async download(key) {
+      const b = await kvGet(key || (((await kvGet('backupN')) || 0) % 2 ? 'backup1' : 'backup0'));
+      if (!b) throw new Error('Keine Sicherheitskopie vorhanden');
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(b)], { type: 'application/json' }));
+      a.download = 'ranker-sicherheitskopie-' + b.at.slice(0, 16).replace(/[:T]/g, '-') + '.json'; document.body.appendChild(a); a.click(); a.remove();
+    }
+  };
+
+  /* ---------- Sperre während des Abgleichs ---------- */
+  let lockEl = null, lockTimer = null;
+  function setLock(on, text) {
+    if (!lockEl) {
+      lockEl = document.createElement('div'); lockEl.id = 'sync-lock';
+      lockEl.style.cssText = 'position:fixed;inset:0;z-index:2147482000;display:none;align-items:center;justify-content:center;background:transparent;touch-action:none;';
+      lockEl.innerHTML = '<div style="background:rgba(20,22,28,.94);color:#e8eaf0;border:1px solid #2d3240;border-radius:12px;padding:14px 20px;font:14px/1.4 system-ui,-apple-system,sans-serif;max-width:80vw;text-align:center;visibility:hidden;"></div>';
+      document.body.appendChild(lockEl);
+    }
+    const box = lockEl.firstChild;
+    if (on) {
+      lockEl.style.display = 'flex'; box.textContent = '☁︎ ' + (text && text !== 'syncing' ? text : 'Gleiche ab…');
+      if (!lockTimer) lockTimer = setTimeout(() => { box.style.visibility = 'visible'; }, 700);   // kurze Abgleiche bleiben unsichtbar
+    } else {
+      lockEl.style.display = 'none'; box.style.visibility = 'hidden';
+      clearTimeout(lockTimer); lockTimer = null;
+    }
+  }
+
+  /* ---------- Hinweis: wie viele Duelle sind noch nicht in der Cloud ---------- */
+  let noteEl = null;
+  async function updateNote() {
+    try {
+      const d = await rankerDb();
+      const n = await new Promise((res, rej) => { const r = d.transaction('matches').objectStore('matches').count(); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+      const base = await kvGet('syncedMatchCount');
+      const open = base == null ? 0 : Math.max(0, n - base);
+      if (!noteEl) {
+        noteEl = document.createElement('div'); noteEl.id = 'sync-note';
+        noteEl.style.cssText = 'position:fixed;left:calc(12px + env(safe-area-inset-left,0px));bottom:calc(48px + env(safe-area-inset-bottom,0px));z-index:2147482500;font:11px/1.2 system-ui,-apple-system,sans-serif;color:#9aa1b2;background:rgba(26,29,36,.85);border:1px solid #2d3240;border-radius:8px;padding:3px 7px;pointer-events:none;display:none;';
+        document.body.appendChild(noteEl);
+      }
+      noteEl.textContent = open + (open === 1 ? ' Duell' : ' Duelle') + ' noch nicht in der Cloud';
+      noteEl.style.display = open > 0 ? 'block' : 'none';
+      return open;
+    } catch (e) { return 0; }
   }
 
   /* ---------- Stand aus der Cloud übernehmen ---------- */
@@ -214,6 +290,8 @@
       }
     }
 
+    await backupBeforeApply(d, local);
+
     // fehlende Bilddateien aus den Paketen holen
     const need = new Map();
     for (const r of data.images || []) if (r._blob && !blobBySha.has(r._blob)) {
@@ -233,6 +311,7 @@
     const H = o => JSON.stringify(o);
     const imgPut = [], thumbDel = [];
     const remoteIds = new Set();
+    let kept = 0;    // lokale Änderungen, die während des Abgleichs entstanden sind und deshalb bleiben
     for (const r of data.images || []) {
       remoteIds.add(r.id);
       const rec = Object.assign({}, r); delete rec._blob; delete rec._link;
@@ -240,13 +319,18 @@
       const l = localById.get(r.id);
       if (l) {
         const lm = Object.assign({}, l); delete lm.blob;
+        if (snap && snap.img.has(r.id) && snap.img.get(r.id) !== fastHash(JSON.stringify(lm))) { kept++; continue; }
         const sameBlob = r._blob ? shas.get(r.id) === r._blob : l.blob === rec.blob;
         if (sameBlob && H(lm) === H(Object.assign({}, rec, { blob: undefined }))) continue;
         if (!sameBlob) thumbDel.push(r.id);
       }
       imgPut.push(rec);
     }
-    const imgDel = local.filter(im => !remoteIds.has(im.id)).map(im => im.id);
+    const imgDel = local.filter(im => {
+      if (remoteIds.has(im.id)) return false;
+      if (snap && (!snap.img.has(im.id) || snap.img.get(im.id) !== fastHash(JSON.stringify(Object.assign({}, im, { blob: undefined }))))) { kept++; return false; }
+      return true;
+    }).map(im => im.id);
 
     for (let i = 0; i < imgPut.length; i += 25) {
       busy(`Übernehme Bilder… ${Math.min(i + 25, imgPut.length)} / ${imgPut.length}`);
@@ -264,7 +348,11 @@
       const loc = await getAll(d, store), byId = new Map(loc.map(x => [x.id, x]));
       const rem = data[store] || [], ids = new Set(rem.map(x => x.id));
       const put = rem.filter(x => { const l = byId.get(x.id); return !l || H(l) !== H(x); });
-      const del = loc.filter(x => !ids.has(x.id)).map(x => x.id);
+      const del = loc.filter(x => {
+        if (ids.has(x.id)) return false;
+        if (store === 'matches' && snap && !snap.match.has(x.id)) { kept++; return false; }   // Duell nach dem Lesen entstanden
+        return true;
+      }).map(x => x.id);
       for (let i = 0; i < Math.max(put.length, del.length); i += 4000) {
         busy(store === 'matches' ? `Übernehme Duelle… ${Math.min(i + 4000, put.length)} / ${put.length}` : 'Übernehme Eigenschaften…');
         const t = d.transaction(store, 'readwrite');
@@ -273,6 +361,7 @@
         await waitT(t);
       }
     }
+    if (kept) console.info(`Image Ranker Sync: ${kept} lokale Änderungen aus der Abgleichzeit bleiben erhalten und werden beim nächsten Abgleich hochgeladen.`);
     if (data.settings !== undefined) lsSet('settings', JSON.stringify(data.settings));
     if (data.tabs !== undefined) lsSet('tabs', JSON.stringify(data.tabs));
     await kvSet('packs', packs);
@@ -288,6 +377,8 @@
     const shas = await shaMap(imgs);
     const m = {}; shas.forEach((s, id) => { m[id] = s; });
     await kvSet('syncedIds', m);
+    await kvSet('syncedMatchCount', snap ? snap.match.size : (await getAll(d, 'matches')).length);   // Stand des Abgleichs, nicht der jetzige
+    updateNote();
   }
 
   let SYNC = null, converting = false;
@@ -301,19 +392,24 @@
       get: getState,
       apply: applyState,
       beforeSync: async ({ config, progress }) => {
+        setLock(true);
+        await sleep(400);            // noch laufende Speichervorgänge des Rankers abwarten
         if (!converting) { converting = true; try { await convertUrlImages(progress); } finally { converting = false; } }
         await uploadMissing(config, progress);
       },
-      onStatus: s => {
-        if (s !== 'ok') return;
+      onStatus: (s, text) => {
+        setLock(s === 'syncing', text);
+        if (s !== 'ok') { if (s === 'offline' || s === 'error' || s === 'pending') updateNote(); return; }
         rememberIds().catch(e => console.warn('ranker-sync', e));
         if (needReload) { needReload = false; busy('Neuer Stand aus der Cloud – lade neu…'); setTimeout(() => location.reload(), 600); }
       }
     });
     window.RANKER_SYNC = SYNC;
     SYNC.start();
-    // Der Image Ranker speichert an vielen Stellen direkt: regelmäßig und beim Verlassen nach Änderungen suchen
-    setInterval(() => { if (document.visibilityState === 'visible') SYNC.changed(); }, POLL_MS);
+    // Kein Abgleich mitten in der Sitzung: nur Start, Rückkehr in die App, Verlassen der Seite und der Knopf im ☁︎-Feld.
+    // Der Ranker speichert an vielen Stellen direkt; der Abgleich erkennt Änderungen selbst. Hier wird nur der Hinweis aktualisiert.
+    updateNote();
+    setInterval(() => { if (document.visibilityState === 'visible') updateNote(); }, 5000);
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') SYNC.syncNow(); });
   });
 })();
