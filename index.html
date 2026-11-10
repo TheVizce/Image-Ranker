@@ -1221,7 +1221,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
             const json = k => { try { return JSON.parse(raw(k)); } catch (e) { return undefined; } };
             const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
             const num = v => v !== null && v !== '' && isFinite(Number(v));
-            const SETTING_KEYS = ['matchupMode', 'focusMatches', 'eloWindow', 'shareOutside', 'shareRival', 'shareGroup', 'shareSimilar', 'shareUndecided', 'preferNewPair', 'placementShare', 'newcomerFirst', 'matchTags', 'bandsInCoverage', 'rivalGroupWeight', 'groupRules', 'uncertainBelow', 'newbieBoost', 'tabAccent', 'tagOrder', 'imageFit', 'dailyGoals', 'tagWeights'];
+            const SETTING_KEYS = ['matchupMode', 'focusMatches', 'eloWindow', 'shareOutside', 'shareRival', 'shareGroup', 'shareSimilar', 'shareUndecided', 'preferNewPair', 'placementShare', 'newcomerFirst', 'matchTags', 'bandsInCoverage', 'rivalGroupWeight', 'groupRules', 'groupOrder', 'uncertainBelow', 'newbieBoost', 'tabAccent', 'tagOrder', 'imageFit', 'dailyGoals', 'tagWeights'];
             const checks = {
                 tabs: () => { const v = json('tabs'); return Array.isArray(v) && v.length > 0 && v.every(t => typeof t === 'string' && t); },
                 settings: () => { const v = json('settings'); return isObj(v) && Object.keys(v).length > 0 && Object.keys(v).every(k => SETTING_KEYS.includes(k)); },
@@ -1298,6 +1298,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		uncertainBelow: 10,       // Einträge mit weniger Duellen gelten als „noch unsicher“ (0 = nie)
 		newbieBoost: false,       // true: Duelle, an denen ein unsicherer Eintrag beteiligt ist, zählen mit K=48 statt 32
 		dailyGoals: {},           // Tagesziel pro Tab: { "<Tab>": Anzahl } (fehlt der Tab = automatisch berechnet)
+		groupOrder: {},           // Reihenfolge der Gruppen pro Tab: { "<Tab>": [Gruppen-Schlüssel in Wunschreihenfolge] } (gilt für alle Einträge gleich)
 		groupRules: {},           // Gruppen-Voraussetzungen: { "<Tab>": { "<Gruppen-Schlüssel>": { conds: [Filterbedingungen] } } }
 		tagWeights: {}            // Rivalen-Vorschläge: { "<Tab>": { "<Tag>": Gewicht } } (leer = Standardgewicht, 0 = ignorieren)
 	};
@@ -1344,6 +1345,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			newbieBoost: r.newbieBoost === undefined ? !!d.newbieBoost : (r.newbieBoost === true || r.newbieBoost === 'true'),
 			tagWeights: {},
 			groupRules: {},
+			groupOrder: {},
 			dailyGoals: {},
 			tagOrder: {},
 			imageFit: {},
@@ -1371,6 +1373,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		if (out.shareOutside + out.shareRival + out.shareGroup + out.shareSimilar + out.shareUndecided > 1) out.shareOutside = 1 - out.shareRival - out.shareGroup - out.shareSimilar - out.shareUndecided;
 		const mt = (r.matchTags && typeof r.matchTags === 'object') ? r.matchTags : (d.matchTags || {});
 		Object.keys(mt).forEach(tab => { if (Array.isArray(mt[tab])) { const l = [...new Set(mt[tab].map(String).filter(Boolean))]; if (l.length) out.matchTags[tab] = l; } });
+		const go = (r.groupOrder && typeof r.groupOrder === 'object') ? r.groupOrder : {};
+		Object.keys(go).forEach(tab => { if (Array.isArray(go[tab])) { const l = [...new Set(go[tab].map(String).filter(Boolean))]; if (l.length) out.groupOrder[tab] = l; } });
 		const gr = (r.groupRules && typeof r.groupRules === 'object') ? r.groupRules : (d.groupRules || {});
 		Object.keys(gr).forEach(tab => {
 			const t = gr[tab]; if (!t || typeof t !== 'object') return;
@@ -5607,8 +5611,28 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	}
 	// ===== GRUPPEN (Schnittmengen): ein Eintrag kann mehreren benannten Gruppen angehören, ohne dass diese verschmelzen =====
 	const GROUP_TAG = '👥 Gruppen';
-	const getGroups = img => (img && Array.isArray(img.groups)) ? img.groups : [];
 	const groupKey = s => String(s).trim().toLowerCase();
+	// Einheitliche Reihenfolge: settings.groupOrder[Tab] bestimmt für alle Einträge, welche Gruppe vor welcher steht. Nicht aufgeführte Gruppen kommen danach, in ihrer bisherigen Reihenfolge.
+	let _goSrc = null, _goMap = null;
+	function groupOrderMap(tab) {
+		const o = settings.groupOrder && settings.groupOrder[tab];
+		if (o !== _goSrc) { _goSrc = o; _goMap = Array.isArray(o) && o.length ? new Map(o.map((k, i) => [k, i])) : null; }
+		return _goMap;
+	}
+	const getGroups = img => {
+		const a = (img && Array.isArray(img.groups)) ? img.groups : [];
+		if (a.length < 2) return a;
+		const m = groupOrderMap(img.tab); if (!m) return a;
+		const pos = g => { const i = m.get(groupKey(g)); return i === undefined ? 1e9 : i; };
+		return a.map((g, i) => [g, i]).sort((x, y) => (pos(x[0]) - pos(y[0])) || (x[1] - y[1])).map(x => x[0]);
+	};
+	function setGroupOrder(tab, keys) {
+		if (!settings.groupOrder) settings.groupOrder = {};
+		const l = [...new Set(keys)];
+		if (l.length) settings.groupOrder[tab] = l; else delete settings.groupOrder[tab];
+		saveSettings();
+		try { renderGroupBadges('left', curL); renderGroupBadges('right', curR); } catch (e) {}
+	}
 	function groupHue(name) { let h = 7; for (const c of String(groupKey(name))) h = (h * 31 + c.codePointAt(0)) >>> 0; return (h * 137) % 360; }
 	const groupColor = name => 'hsl(' + groupHue(name) + ',70%,58%)';
 	function groupIcon(name) { const m = String(name).match(/^\p{Extended_Pictographic}/u); return m ? m[0] : '●'; }
@@ -7536,16 +7560,66 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		const target = other ? other.name : nm;
 		const oldRule = groupRule(h.tab, g.key);
 		await editGroups(g.members.map(m => m.id), im => { im.groups = getGroups(im).map(x => groupKey(x) === g.key ? target : x); });
-		if (groupKey(target) !== g.key) { setGroupRule(h.tab, g.key, null); if (oldRule && !other) setGroupRule(h.tab, groupKey(target), oldRule); }
+		if (groupKey(target) !== g.key) {
+			setGroupRule(h.tab, g.key, null); if (oldRule && !other) setGroupRule(h.tab, groupKey(target), oldRule);
+			const go = (settings.groupOrder && settings.groupOrder[h.tab]) || [];
+			if (go.includes(g.key)) setGroupOrder(h.tab, other ? go.filter(k => k !== g.key) : go.map(k => k === g.key ? groupKey(target) : k));
+		}
 		if (h.gpanel === g.key) { h.gpanel = groupKey(target); h.gpanelName = target; }
 		if (h.ghide.has(g.key)) { h.ghide.delete(g.key); h.ghide.add(groupKey(target)); }
 		rhgChanged();
 	}
+	// ----- Reihenfolge-Dialog -----
+	let goState = null;     // { tab, list: [{key, name, n}] }
+	function openGroupOrder() {
+		const h = rivalHub, tab = h.tab, cnt = new Map();
+		const map = groupsOfImages(h.images);
+		const saved = (settings.groupOrder && settings.groupOrder[tab]) || [];
+		const names = new Map([...map.values()].map(g => [g.key, g]));
+		const list = [];
+		saved.forEach(k => { if (names.has(k)) { list.push(names.get(k)); names.delete(k); } });
+		[...names.values()].sort((a, b) => b.members.length - a.members.length || a.name.localeCompare(b.name, 'de')).forEach(g => list.push(g));
+		goState = { tab, list: list.map(g => ({ key: g.key, name: g.name, n: g.members.length })), unplaced: new Set(names.keys()) };
+		let o = document.getElementById('grp-order'); if (o) o.remove();
+		o = document.createElement('div'); o.id = 'grp-order';
+		o.style.cssText = 'position:fixed;inset:0;z-index:2000;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:12px;';
+		o.innerHTML = '<div style="background:#1a1d24;border:1px solid #2d3240;border-radius:12px;max-width:520px;width:100%;max-height:90vh;display:flex;flex-direction:column;padding:14px;">' +
+			'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><b>↕ Reihenfolge der Gruppen</b><button class="nav-btn" style="padding:3px 12px;" onclick="closeGroupOrder()">Fertig</button></div>' +
+			'<div style="color:#9aa1b2;font-size:0.85em;margin:6px 0;">Gilt für alle Einträge gleich: eine Gruppe weiter oben steht bei jedem Eintrag auch weiter vorn (z. B. Jahrgang zuerst). Gruppen, die hier noch nicht festgelegt sind, kommen danach.</div>' +
+			'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;"><button class="nav-btn" style="padding:3px 10px;" onclick="groupOrderAuto()" title="Sortiert nach der Stelle, an der die Gruppe bisher im Schnitt stand">Vorschlag aus bisheriger Reihenfolge</button><button class="nav-btn" style="padding:3px 10px;" onclick="groupOrderAz()">A–Z</button></div>' +
+			'<div id="grp-order-list" style="overflow:auto;border:1px solid #2a2a2a;border-radius:8px;"></div></div>';
+		document.body.appendChild(o);
+		groupOrderRender();
+	}
+	function groupOrderRender() {
+		const box = document.getElementById('grp-order-list'); if (!box || !goState) return;
+		const L = goState.list;
+		box.innerHTML = L.map((g, i) => '<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-bottom:1px solid #23262e;">' +
+			'<span style="width:22px;text-align:right;color:#777;">' + (i + 1) + '</span>' +
+			'<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + groupPill(g.name) + ' <small style="color:#777;">' + g.n + (goState.unplaced.has(g.key) ? ' · neu' : '') + '</small></span>' +
+			'<button class="nav-btn" style="padding:2px 8px;" title="Ganz nach oben" onclick="groupOrderMove(' + i + ',0)">⤒</button>' +
+			'<button class="nav-btn" style="padding:2px 10px;" onclick="groupOrderMove(' + i + ',' + (i - 1) + ')"' + (i ? '' : ' disabled') + '>▲</button>' +
+			'<button class="nav-btn" style="padding:2px 10px;" onclick="groupOrderMove(' + i + ',' + (i + 1) + ')"' + (i < L.length - 1 ? '' : ' disabled') + '>▼</button></div>').join('');
+	}
+	function groupOrderSave() { goState.unplaced = new Set(); setGroupOrder(goState.tab, goState.list.map(g => g.key)); groupOrderRender(); }
+	function groupOrderMove(from, to) {
+		const L = goState.list; if (to < 0 || to >= L.length || from === to) return;
+		const [g] = L.splice(from, 1); L.splice(to, 0, g); groupOrderSave();
+	}
+	function groupOrderAz() { goState.list.sort((a, b) => a.name.replace(/^[^\p{L}\p{N}]+/u, '').localeCompare(b.name.replace(/^[^\p{L}\p{N}]+/u, ''), 'de')); groupOrderSave(); }
+	function groupOrderAuto() {
+		const h = rivalHub, sum = new Map(), n = new Map();
+		h.images.forEach(im => (Array.isArray(im.groups) ? im.groups : []).forEach((g, i) => { const k = groupKey(g); sum.set(k, (sum.get(k) || 0) + i); n.set(k, (n.get(k) || 0) + 1); }));
+		goState.list.sort((a, b) => ((sum.get(a.key) || 0) / (n.get(a.key) || 1)) - ((sum.get(b.key) || 0) / (n.get(b.key) || 1)) || b.n - a.n);
+		groupOrderSave();
+	}
+	function closeGroupOrder() { const o = document.getElementById('grp-order'); if (o) o.remove(); goState = null; rhgChanged(); }
 	async function rhgDelete(i) {
 		const h = rivalHub, g = h.glist[i]; if (!g) return;
 		if (!confirm('Gruppe „' + g.name + '“ löschen? Die ' + g.members.length + ' Einträge bleiben erhalten, sie sind nur nicht mehr in dieser Gruppe.')) return;
 		await editGroups(g.members.map(m => m.id), im => { im.groups = getGroups(im).filter(x => groupKey(x) !== g.key); });
 		setGroupRule(h.tab, g.key, null);
+		{ const go = (settings.groupOrder && settings.groupOrder[h.tab]) || []; if (go.includes(g.key)) setGroupOrder(h.tab, go.filter(k => k !== g.key)); }
 		if (h.gpanel === g.key) h.gpanel = null;
 		rhgChanged();
 	}
@@ -7554,7 +7628,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	function renderRivalHubGroups() {
 		const h = rivalHub, view = document.getElementById('rh-view'); if (!view) return;
 		h.glist = rhgGroups();
-		const newBtn = '<button class="nav-btn" style="padding:5px 12px;" onclick="rhgNew()">＋ Neue Gruppe</button>';
+		const newBtn = '<button class="nav-btn" style="padding:5px 12px;" onclick="rhgNew()">＋ Neue Gruppe</button>' + (h.glist.length > 1 ? ' <button class="nav-btn" style="padding:5px 12px;" onclick="openGroupOrder()">↕ Reihenfolge</button>' : '');
 		if (!h.glist.length && !h.gpanel) {
 			view.innerHTML = '<div class="rh-empty">Noch keine Gruppen.<br><small>Gruppen sind benannte Mengen (z. B. „Fußballerinnen“, „deutsche Sportlerinnen“). Ein Eintrag kann in mehreren sein – die Gruppen überlappen dann.<br>Du kannst sie hier anlegen, in den Details eines Eintrags oder in der Rangliste per Mehrfachauswahl.</small><br><br>' + newBtn + '</div>';
 			return;
