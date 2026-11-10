@@ -265,11 +265,14 @@
       const open = base == null ? 0 : Math.max(0, n - base);
       if (!noteEl) {
         noteEl = document.createElement('div'); noteEl.id = 'sync-note';
-        noteEl.style.cssText = 'position:fixed;left:calc(12px + env(safe-area-inset-left,0px));bottom:calc(48px + env(safe-area-inset-bottom,0px));z-index:2147482500;font:11px/1.2 system-ui,-apple-system,sans-serif;color:#9aa1b2;background:rgba(26,29,36,.85);border:1px solid #2d3240;border-radius:8px;padding:3px 7px;pointer-events:none;display:none;';
+        noteEl.style.cssText = 'position:fixed;left:calc(215px + env(safe-area-inset-left,0px));bottom:calc(12px + env(safe-area-inset-bottom,0px));height:30px;box-sizing:border-box;display:flex;align-items:center;cursor:pointer;z-index:2147482500;font:11px/1.2 system-ui,-apple-system,sans-serif;color:#9aa1b2;background:rgba(26,29,36,.85);border:1px solid #2d3240;border-radius:8px;padding:3px 7px;pointer-events:auto;display:none;';
+        noteEl.onclick = () => { if (SYNC) SYNC.syncNow(); };
         document.body.appendChild(noteEl);
       }
-      noteEl.textContent = open + (open === 1 ? ' Duell' : ' Duelle') + ' noch nicht in der Cloud';
-      noteEl.style.display = open > 0 ? 'block' : 'none';
+      noteEl.textContent = '⬆ ' + open + (open === 1 ? ' Duell' : ' Duelle') + ' hochladen';
+      noteEl.title = open + ' Duelle sind noch nicht in der Cloud. Antippen zum Abgleichen.';
+      noteEl.style.color = open >= 30 ? '#ffb86c' : '#9aa1b2';
+      noteEl.style.display = open > 0 ? 'flex' : 'none';
       return open;
     } catch (e) { return 0; }
   }
@@ -443,11 +446,15 @@
       }
     });
     window.RANKER_SYNC = SYNC;
-    SYNC.start();
-    // Kein Abgleich mitten in der Sitzung: nur Start, Rückkehr in die App, Verlassen der Seite und der Knopf im ☁︎-Feld.
-    // Der Ranker speichert an vielen Stellen direkt; der Abgleich erkennt Änderungen selbst. Hier wird nur der Hinweis aktualisiert.
+    // Abgleich nur beim Start und wenn du ihn auslöst (☁︎-Feld → „Jetzt abgleichen“, Einstellungen oder Hinweis „Duelle hochladen“).
+    // Der gemeinsame Sync würde sonst bei jedem Tab-Wechsel, Wieder-Online und Verlassen der Seite von selbst abgleichen:
+    // diese drei Ereignisse werden nur während SYNC.start() verworfen (sync-v1.js selbst bleibt unverändert).
+    const skip = new Set(['visibilitychange', 'online', 'pagehide']);
+    const dAdd = document.addEventListener, wAdd = window.addEventListener;
+    document.addEventListener = function (t, ...r) { if (!skip.has(t)) return dAdd.call(document, t, ...r); };
+    window.addEventListener = function (t, ...r) { if (!skip.has(t)) return wAdd.call(window, t, ...r); };
+    try { SYNC.start(); } finally { document.addEventListener = dAdd; window.addEventListener = wAdd; }
     updateNote();
     setInterval(() => { if (document.visibilityState === 'visible') updateNote(); }, 5000);
-    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') SYNC.syncNow(); });
   });
 })();
