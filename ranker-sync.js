@@ -192,32 +192,77 @@
   let snap = null;
   async function getState() {
     const d = await rankerDb();
-    const [imgs, matches, tagDefinitions] = await Promise.all([getAll(d, 'images'), getAll(d, 'matches'), getAll(d, 'tagDefinitions')]);
+    const [imgs, tagDefinitions] = await Promise.all([getAll(d, 'images'), getAll(d, 'tagDefinitions')]);
     const shas = await shaMap(imgs);
-    snap = { img: new Map(), match: new Set() };
+    snap = { img: new Map() };
     const images = imgs.map(im => {
       const m = Object.assign({}, im); delete m.blob;
       snap.img.set(im.id, fastHash(JSON.stringify(m)));
       if (im.blob instanceof Blob) m._blob = shas.get(im.id); else m._link = typeof im.blob === 'string' ? im.blob : '';
       return m;
     });
-    matches.forEach(x => snap.match.add(x.id));
-    const st = { images, matches, tagDefinitions, packs: (await kvGet('packs')) || {} };
+    const st = { images, tagDefinitions, packs: (await kvGet('packs')) || {} };
     const settings = parse(lsGet('settings')), tabs = parse(lsGet('tabs'));
     if (settings !== undefined) st.settings = settings;
     if (tabs !== undefined) st.tabs = tabs;
     return st;
   }
 
+  /* ---------- Duelle: eigener Ordner in der Cloud („image-ranker-duelle“), in Blöcken zu je 500 Duellen nach ID ----------
+     Neue Duelle landen immer im letzten Block: ein Abgleich ändert so nur 1 bis 2 Dateien statt ~25. */
+  const MATCH_CHUNK = 500;
+  let snapM = null, mStatus = null, mText = '', lastBackupAt = 0;
+  async function getMatchState() {
+    const d = await rankerDb();
+    const matches = await getAll(d, 'matches');
+    snapM = new Set(matches.map(m => m.id));
+    const by = new Map();
+    for (const m of matches) { const k = Math.floor(m.id / MATCH_CHUNK); if (!by.has(k)) by.set(k, []); by.get(k).push(m); }
+    return { chunks: [...by.entries()].map(([k, items]) => ({ id: 'm' + k, items: items.sort((a, b) => a.id - b.id) })) };
+  }
+  async function applyMatchState(data) {
+    const d = await rankerDb(), H = o => JSON.stringify(o);
+    const rem = []; for (const c of data.chunks || []) for (const m of c.items || []) rem.push(m);
+    const loc = await getAll(d, 'matches'), byId = new Map(loc.map(x => [x.id, x])), ids = new Set(rem.map(x => x.id));
+    const put = rem.filter(x => { const l = byId.get(x.id); return !l || H(l) !== H(x); });
+    let kept = 0;
+    const del = loc.filter(x => {
+      if (ids.has(x.id)) return false;
+      if (snapM && !snapM.has(x.id)) { kept++; return false; }     // Duell nach dem Lesen entstanden: bleibt
+      return true;
+    }).map(x => x.id);
+    if (put.length || del.length) {
+      await backupBeforeApply(d, (await getAll(d, 'images')).map(im => { const m = Object.assign({}, im); delete m.blob; return m; }));
+      for (let i = 0; i < Math.max(put.length, del.length); i += 4000) {
+        busy(`Übernehme Duelle… ${Math.min(i + 4000, put.length)} / ${put.length}`);
+        const t = d.transaction('matches', 'readwrite');
+        put.slice(i, i + 4000).forEach(x => t.objectStore('matches').put(x));
+        del.slice(i, i + 4000).forEach(id => t.objectStore('matches').delete(id));
+        await waitT(t);
+      }
+      needReload = true;
+    }
+    if (kept) console.info(`Image Ranker Sync: ${kept} Duelle aus der Abgleichzeit bleiben erhalten und werden beim nächsten Abgleich hochgeladen.`);
+    busy('');
+    return true;
+  }
+  async function syncMatches() {
+    mStatus = null; mText = '';
+    await MSYNC.syncNow();
+    if (mStatus === 'offline') throw new TypeError('offline');
+    if (mStatus === 'error') throw GH.error(mText || 'Die Duelle konnten nicht abgeglichen werden.', { retry: true });
+  }
+
   /* ---------- Sicherheitskopie vor jeder Übernahme (die letzten zwei, ohne Bilddateien) ---------- */
   async function backupBeforeApply(d, localImgs) {
     try {
+      if (Date.now() - lastBackupAt < 120000) return;       // im selben Abgleich nur eine Kopie
       const [matches, tagDefinitions] = await Promise.all([getAll(d, 'matches'), getAll(d, 'tagDefinitions')]);
       if (!localImgs.length && !matches.length) return;      // leeres Gerät: nichts zu sichern
       const n = ((await kvGet('backupN')) || 0) + 1;
       const images = localImgs.map(im => { const m = Object.assign({}, im); delete m.blob; return m; });
       await kvSet('backup' + (n % 2), { at: new Date().toISOString(), images, matches, tagDefinitions, settings: parse(lsGet('settings')), tabs: parse(lsGet('tabs')) });
-      await kvSet('backupN', n);
+      await kvSet('backupN', n); lastBackupAt = Date.now();
     } catch (e) { console.warn('ranker-sync: Sicherheitskopie fehlgeschlagen', e); }
   }
   window.RankerSyncBackup = {
@@ -384,17 +429,16 @@
       thumbDel.forEach(id => t.objectStore('thumbs').delete(id));
       await waitT(t);
     }
-    for (const store of ['matches', 'tagDefinitions']) {
+    for (const store of ['tagDefinitions']) {
       const loc = await getAll(d, store), byId = new Map(loc.map(x => [x.id, x]));
       const rem = data[store] || [], ids = new Set(rem.map(x => x.id));
       const put = rem.filter(x => { const l = byId.get(x.id); return !l || H(l) !== H(x); });
       const del = loc.filter(x => {
         if (ids.has(x.id)) return false;
-        if (store === 'matches' && snap && !snap.match.has(x.id)) { kept++; return false; }   // Duell nach dem Lesen entstanden
         return true;
       }).map(x => x.id);
       for (let i = 0; i < Math.max(put.length, del.length); i += 4000) {
-        busy(store === 'matches' ? `Übernehme Duelle… ${Math.min(i + 4000, put.length)} / ${put.length}` : 'Übernehme Eigenschaften…');
+        busy('Übernehme Eigenschaften…');
         const t = d.transaction(store, 'readwrite');
         put.slice(i, i + 4000).forEach(x => t.objectStore(store).put(x));
         del.slice(i, i + 4000).forEach(id => t.objectStore(store).delete(id));
@@ -418,15 +462,25 @@
     const shas = await shaMap(imgs);
     const m = {}; shas.forEach((s, id) => { m[id] = s; });
     await kvSet('syncedIds', m);
-    await kvSet('syncedMatchCount', snap ? snap.match.size : (await getAll(d, 'matches')).length);   // Stand des Abgleichs, nicht der jetzige
+    await kvSet('syncedMatchCount', snapM ? snapM.size : (await getAll(d, 'matches')).length);   // Stand des Abgleichs, nicht der jetzige
     updateNote();
   }
 
-  let SYNC = null, converting = false;
+  let SYNC = null, MSYNC = null, converting = false;
   rankerDb().then(() => {
+    MSYNC = ToolSync.create({
+      tool: TOOL + '-duelle',
+      collections: { chunks: 'array' },
+      shards: 32,
+      stampDelay: 2000,
+      badge: false, home: false,
+      get: getMatchState,
+      apply: applyMatchState,
+      onStatus: (st, t) => { mStatus = st; mText = t || ''; if (st === 'syncing' && t) lockText(t); }
+    });
     SYNC = ToolSync.create({
       tool: TOOL,
-      collections: { images: 'array', matches: 'array', tagDefinitions: 'array', packs: 'map' },
+      collections: { images: 'array', tagDefinitions: 'array', packs: 'map' },
       fields: ['settings', 'tabs'],
       shards: 64,
       stampDelay: 2000,
@@ -435,6 +489,7 @@
       beforeSync: async ({ config, progress }) => {
         setLock(true);
         await sleep(400);            // noch laufende Speichervorgänge des Rankers abwarten
+        await syncMatches();         // Duelle zuerst (eigener Ordner), dann Bilder und Eigenschaften
         if (!converting) { converting = true; try { await convertUrlImages(progress); } finally { converting = false; } }
         await uploadMissing(config, progress);
       },
