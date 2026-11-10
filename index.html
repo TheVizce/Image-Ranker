@@ -1423,6 +1423,10 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	}
 
 	let settings = loadSettings();
+	// Eine gemeinsame Grenze für „neu / noch unsicher“ (settings.uncertainBelow, 0 = nie): 🆕-Badge, ?-Zeichen, Neulinge im Matchmaking,
+	// Platzierungsphase und schnellere Einstufung. Das ⭐ (Personal Best) gibt es erst, wenn ein Eintrag nicht mehr neu ist (ohne Grenze ab 5 Duellen).
+	const isNewcomerImg = img => settings.uncertainBelow > 0 && (img.wins + img.losses) < settings.uncertainBelow;
+	const peakMinDuels = () => settings.uncertainBelow > 0 ? settings.uncertainBelow : 5;
 	// ===================== /EINSTELLUNGEN =====================
     const request = indexedDB.open("ImageRankerDB", 8);
     request.onblocked = () => alert("Die Datenbank muss aktualisiert werden. Bitte alle anderen Fenster/Tabs mit dieser Seite schließen.");
@@ -1569,10 +1573,10 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		
 		// --- B. BADGES ZUSAMMENSTELLEN ---
 		let badges = ''; 
-		if (img.elo >= (img.peak || 0) && (img.wins + img.losses >= 5)) badges += '⭐';
+		if (img.elo >= (img.peak || 0) && (img.wins + img.losses >= peakMinDuels())) badges += '⭐';
 		if (img.streak >= 3) badges += '🔥';
 		if (img.streak <= -3) badges += '❄️';
-		if (img.wins + img.losses < 5) badges += '🆕';
+		if (isNewcomerImg(img)) badges += '🆕';
 		
 	
 			const formattedRank = String(rank).padStart(3, '0');
@@ -2513,7 +2517,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
             detailBadges = '<span style="color:#3498db;">❄️ ' + Math.abs(img.streak) + 'er Pech</span>';
         }
 
-        const isAtPeak = img.elo >= (img.peak || 0) && totalMatches >= 5;
+        const isAtPeak = img.elo >= (img.peak || 0) && totalMatches >= peakMinDuels();
         const peakBadge = isAtPeak ? '<span style="color:#f1c40f; margin-left:10px;" title="Aktueller Höchstwert!">⭐ Peak</span>' : '';
 
         // TAGS / EIGENSCHAFTEN DATEN HOLEN
@@ -3048,7 +3052,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
         container.appendChild(rBadge);
     
         // 3. Peak Badge (bleibt auf dem Bild)
-        if (img.elo >= (img.peak || 0) && totalMatches >= 5) {
+        if (img.elo >= (img.peak || 0) && totalMatches >= peakMinDuels()) {
             const pBadge = document.createElement('div');
             pBadge.className = 'peak-badge';
             pBadge.innerHTML = `⭐ PEAK`;
@@ -3227,7 +3231,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			let badges = '';
 			
 			// Peak-Badge (ab 5 Matches)
-			if (img.elo >= (img.peak || 0) && totalMatches >= 5) {
+			if (img.elo >= (img.peak || 0) && totalMatches >= peakMinDuels()) {
 				badges += ' <span title="Personal Best" style="color:#f1c40f; cursor:help;">⭐</span>';
 			}
 	
@@ -4234,7 +4238,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		h += '<div style="' + hint + ' margin:-4px 0 4px 0;">Trifft keine gezielte Art zu (oder gibt es keinen passenden Gegner), geht es mit dem Rest weiter: im COVERAGE-Modus mit der Abdeckung, im STANDARD-Modus wie unten.</div>';
 		h += '</div>';
 
-		h += '<div style="border-top:1px solid #222; padding-top:12px; margin-top:12px;"><div style="color:#aaa; font-size:0.85em; margin-bottom:8px;"><b>📍 Neulinge</b> (Bilder mit weniger Duellen als bei „Noch unsicher“ unten)</div>';
+		h += '<div style="border-top:1px solid #222; padding-top:12px; margin-top:12px;"><div style="color:#aaa; font-size:0.85em; margin-bottom:8px;"><b>📍 Neulinge</b> (Bilder mit weniger als ' + settings.uncertainBelow + ' Duellen, einstellbar unter „Ranking-Genauigkeit“: „Neu / noch unsicher“)</div>';
 		h += nrow('set-placementShare', 'Neulinge einordnen (%)', 'Wahrscheinlichkeit, dass ein Neuling per Binärsuche einsortiert wird: Sein Gegner liegt jeweils in der Mitte des Bereichs der etablierten Rangliste, in den er nach seinen bisherigen Duellen gehört. So findet er mit wenigen Duellen (etwa 10) seinen Platz. Gilt in beiden Modi, wenn der Neuling links steht, und vor allen anderen Arten.', 'placementShare');
 		h += nrow('set-newcomerFirst', 'Neulinge zuerst (%)', 'Nur STANDARD: Wahrscheinlichkeit, dass ein Neuling links steht (der mit den wenigsten Duellen). Im COVERAGE-Modus stehen Bilder mit den wenigsten Gegnern ohnehin zuerst.', 'newcomerFirst');
 		h += '</div>';
@@ -4277,8 +4281,9 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		// --- Ranking-Genauigkeit ---
 		h += '<div style="' + box + '">';
 		h += '<h3 style="' + title + '">Ranking-Genauigkeit</h3>';
-		h += '<div style="' + row + '"><label for="set-uncertainBelow">„Noch unsicher“ unter … Duellen</label>' +
-			'<input id="set-uncertainBelow" type="number" min="0" max="500" step="1" value="' + settings.uncertainBelow + '" onchange="updateSetting(\'uncertainBelow\', this.value)" style="' + inp + ' width:90px;"></div>';
+		h += '<div style="' + row + '"><label for="set-uncertainBelow">Neu / „noch unsicher“ unter … Duellen</label>' +
+			'<input id="set-uncertainBelow" type="number" min="0" max="500" step="1" value="' + settings.uncertainBelow + '" onchange="updateSetting(\'uncertainBelow\', this.value)" style="' + inp + ' width:90px;"></div>' +
+			'<div style="' + hint + ' margin:-6px 0 12px;">Eine Grenze für alles „Neue“: 🆕-Badge, ?-Zeichen in der Tabelle, Neulinge im Matchmaking (zuerst, einordnen), schnellere Einstufung und das ⭐ (erst danach). 0 = nichts gilt als neu.</div>';
 		h += '<div style="' + row + ' margin-bottom:0;"><label for="set-newbieBoost">Neulinge schneller einstufen (K=48 statt 32)</label>' +
 			'<input id="set-newbieBoost" type="checkbox" ' + (settings.newbieBoost ? 'checked' : '') + ' onchange="updateSetting(\'newbieBoost\', this.checked)"></div>';
 		h += '<div style="' + hint + '">Unsichere Einträge sind in der Rangliste mit „?“ markiert. Mit dem Schalter bewegen sich Einträge mit wenig Duellen stärker, bis sie sich eingependelt haben. Gilt nur für neue Duelle.</div>';
