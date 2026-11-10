@@ -1221,7 +1221,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
             const json = k => { try { return JSON.parse(raw(k)); } catch (e) { return undefined; } };
             const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
             const num = v => v !== null && v !== '' && isFinite(Number(v));
-            const SETTING_KEYS = ['matchupMode', 'focusMatches', 'eloWindow', 'shareOutside', 'shareRival', 'shareGroup', 'shareSimilar', 'shareUndecided', 'preferNewPair', 'placementShare', 'newcomerFirst', 'matchTags', 'bandsInCoverage', 'rivalGroupWeight', 'groupRules', 'groupOrder', 'uncertainBelow', 'newbieBoost', 'tabAccent', 'tagOrder', 'imageFit', 'dailyGoals', 'tagWeights'];
+            const SETTING_KEYS = ['matchupMode', 'focusMatches', 'eloWindow', 'shareOutside', 'shareRival', 'shareGroup', 'shareSimilar', 'shareUndecided', 'preferNewPair', 'placementShare', 'newcomerFirst', 'matchTags', 'bandsInCoverage', 'rivalGroupWeight', 'groupRules', 'groupOrder', 'groupKinds', 'uncertainBelow', 'newbieBoost', 'tabAccent', 'tagOrder', 'imageFit', 'dailyGoals', 'tagWeights'];
             const checks = {
                 tabs: () => { const v = json('tabs'); return Array.isArray(v) && v.length > 0 && v.every(t => typeof t === 'string' && t); },
                 settings: () => { const v = json('settings'); return isObj(v) && Object.keys(v).length > 0 && Object.keys(v).every(k => SETTING_KEYS.includes(k)); },
@@ -1298,6 +1298,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		uncertainBelow: 10,       // Einträge mit weniger Duellen gelten als „noch unsicher“ (0 = nie)
 		newbieBoost: false,       // true: Duelle, an denen ein unsicherer Eintrag beteiligt ist, zählen mit K=48 statt 32
 		dailyGoals: {},           // Tagesziel pro Tab: { "<Tab>": Anzahl } (fehlt der Tab = automatisch berechnet)
+		groupKinds: {},           // Arten von Gruppen pro Tab: { "<Tab>": { order: [Artnamen in Wunschreihenfolge], of: { "<Gruppen-Schlüssel>": "<Art>" } } }
 		groupOrder: {},           // Reihenfolge der Gruppen pro Tab: { "<Tab>": [Gruppen-Schlüssel in Wunschreihenfolge] } (gilt für alle Einträge gleich)
 		groupRules: {},           // Gruppen-Voraussetzungen: { "<Tab>": { "<Gruppen-Schlüssel>": { conds: [Filterbedingungen] } } }
 		tagWeights: {}            // Rivalen-Vorschläge: { "<Tab>": { "<Tag>": Gewicht } } (leer = Standardgewicht, 0 = ignorieren)
@@ -1346,6 +1347,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 			tagWeights: {},
 			groupRules: {},
 			groupOrder: {},
+			groupKinds: {},
 			dailyGoals: {},
 			tagOrder: {},
 			imageFit: {},
@@ -1375,6 +1377,13 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		Object.keys(mt).forEach(tab => { if (Array.isArray(mt[tab])) { const l = [...new Set(mt[tab].map(String).filter(Boolean))]; if (l.length) out.matchTags[tab] = l; } });
 		const go = (r.groupOrder && typeof r.groupOrder === 'object') ? r.groupOrder : {};
 		Object.keys(go).forEach(tab => { if (Array.isArray(go[tab])) { const l = [...new Set(go[tab].map(String).filter(Boolean))]; if (l.length) out.groupOrder[tab] = l; } });
+		const gk = (r.groupKinds && typeof r.groupKinds === 'object') ? r.groupKinds : {};
+		Object.keys(gk).forEach(tab => {
+			const k = gk[tab]; if (!k || typeof k !== 'object') return;
+			const order = [...new Set((Array.isArray(k.order) ? k.order : []).map(String).filter(Boolean))], of = {};
+			if (k.of && typeof k.of === 'object') Object.keys(k.of).forEach(key => { const v = String(k.of[key] || ''); if (v && order.includes(v)) of[key] = v; });
+			if (order.length) out.groupKinds[tab] = { order, of };
+		});
 		const gr = (r.groupRules && typeof r.groupRules === 'object') ? r.groupRules : (d.groupRules || {});
 		Object.keys(gr).forEach(tab => {
 			const t = gr[tab]; if (!t || typeof t !== 'object') return;
@@ -5613,25 +5622,48 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	const GROUP_TAG = '👥 Gruppen';
 	const groupKey = s => String(s).trim().toLowerCase();
 	// Einheitliche Reihenfolge: settings.groupOrder[Tab] bestimmt für alle Einträge, welche Gruppe vor welcher steht. Nicht aufgeführte Gruppen kommen danach, in ihrer bisherigen Reihenfolge.
-	let _goSrc = null, _goMap = null;
+	let _goSrc = null, _goKSrc = null, _goMap = null;
 	function groupOrderMap(tab) {
-		const o = settings.groupOrder && settings.groupOrder[tab];
-		if (o !== _goSrc) { _goSrc = o; _goMap = Array.isArray(o) && o.length ? new Map(o.map((k, i) => [k, i])) : null; }
+		const o = settings.groupOrder && settings.groupOrder[tab], k = settings.groupKinds && settings.groupKinds[tab];
+		if (o !== _goSrc || k !== _goKSrc) {
+			_goSrc = o; _goKSrc = k; _goMap = null;
+			if ((Array.isArray(o) && o.length) || k) {
+				_goMap = new Map();
+				const kinds = k ? k.order : [];
+				const keys = new Set([...(o || []), ...(k ? Object.keys(k.of) : [])]);
+				keys.forEach(key => {
+					const ki = k && k.of[key] ? kinds.indexOf(k.of[key]) : -1, oi = o ? o.indexOf(key) : -1;
+					_goMap.set(key, (ki < 0 ? 999 : ki) * 100000 + (oi < 0 ? 99999 : oi));
+				});
+			}
+		}
 		return _goMap;
 	}
 	const getGroups = img => {
 		const a = (img && Array.isArray(img.groups)) ? img.groups : [];
 		if (a.length < 2) return a;
 		const m = groupOrderMap(img.tab); if (!m) return a;
-		const pos = g => { const i = m.get(groupKey(g)); return i === undefined ? 1e9 : i; };
+		const pos = g => { const i = m.get(groupKey(g)); return i === undefined ? 999 * 100000 + 99999 : i; };
 		return a.map((g, i) => [g, i]).sort((x, y) => (pos(x[0]) - pos(y[0])) || (x[1] - y[1])).map(x => x[0]);
 	};
+	function refreshGroupBadges() { try { renderGroupBadges('left', curL); renderGroupBadges('right', curR); } catch (e) {} }
+	function setGroupKinds(tab, kinds) {
+		if (!settings.groupKinds) settings.groupKinds = {};
+		if (kinds && kinds.order.length) settings.groupKinds[tab] = { order: kinds.order.slice(), of: Object.assign({}, kinds.of) }; else delete settings.groupKinds[tab];
+		saveSettings(); refreshGroupBadges();
+	}
+	// Gruppe umbenannt (newKey) oder gelöscht (newKey = null): Reihenfolge und Art nachziehen
+	function groupKeyChanged(tab, oldKey, newKey) {
+		const go = (settings.groupOrder && settings.groupOrder[tab]) || [];
+		if (go.includes(oldKey)) setGroupOrder(tab, newKey && !go.includes(newKey) ? go.map(k => k === oldKey ? newKey : k) : go.filter(k => k !== oldKey));
+		const gk = settings.groupKinds && settings.groupKinds[tab];
+		if (gk && gk.of[oldKey] !== undefined) { const of = Object.assign({}, gk.of), kind = of[oldKey]; delete of[oldKey]; if (newKey && of[newKey] === undefined) of[newKey] = kind; setGroupKinds(tab, { order: gk.order, of }); }
+	}
 	function setGroupOrder(tab, keys) {
 		if (!settings.groupOrder) settings.groupOrder = {};
 		const l = [...new Set(keys)];
 		if (l.length) settings.groupOrder[tab] = l; else delete settings.groupOrder[tab];
-		saveSettings();
-		try { renderGroupBadges('left', curL); renderGroupBadges('right', curR); } catch (e) {}
+		saveSettings(); refreshGroupBadges();
 	}
 	function groupHue(name) { let h = 7; for (const c of String(groupKey(name))) h = (h * 31 + c.codePointAt(0)) >>> 0; return (h * 137) % 360; }
 	const groupColor = name => 'hsl(' + groupHue(name) + ',70%,58%)';
@@ -7562,49 +7594,116 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		await editGroups(g.members.map(m => m.id), im => { im.groups = getGroups(im).map(x => groupKey(x) === g.key ? target : x); });
 		if (groupKey(target) !== g.key) {
 			setGroupRule(h.tab, g.key, null); if (oldRule && !other) setGroupRule(h.tab, groupKey(target), oldRule);
-			const go = (settings.groupOrder && settings.groupOrder[h.tab]) || [];
-			if (go.includes(g.key)) setGroupOrder(h.tab, other ? go.filter(k => k !== g.key) : go.map(k => k === g.key ? groupKey(target) : k));
+			groupKeyChanged(h.tab, g.key, other ? null : groupKey(target));
 		}
 		if (h.gpanel === g.key) { h.gpanel = groupKey(target); h.gpanelName = target; }
 		if (h.ghide.has(g.key)) { h.ghide.delete(g.key); h.ghide.add(groupKey(target)); }
 		rhgChanged();
 	}
-	// ----- Reihenfolge-Dialog -----
-	let goState = null;     // { tab, list: [{key, name, n}] }
+	// ----- Reihenfolge-Dialog (mit Arten) -----
+	let goState = null;     // { tab, list: [{key,name,n}] (Reihenfolge innerhalb einer Art), kinds: {order, of}, unplaced }
+	const goKindOf = g => goState.kinds.of[g.key] && goState.kinds.order.includes(goState.kinds.of[g.key]) ? goState.kinds.of[g.key] : '';
 	function openGroupOrder() {
-		const h = rivalHub, tab = h.tab, cnt = new Map();
+		const h = rivalHub, tab = h.tab;
 		const map = groupsOfImages(h.images);
 		const saved = (settings.groupOrder && settings.groupOrder[tab]) || [];
 		const names = new Map([...map.values()].map(g => [g.key, g]));
 		const list = [];
 		saved.forEach(k => { if (names.has(k)) { list.push(names.get(k)); names.delete(k); } });
 		[...names.values()].sort((a, b) => b.members.length - a.members.length || a.name.localeCompare(b.name, 'de')).forEach(g => list.push(g));
-		goState = { tab, list: list.map(g => ({ key: g.key, name: g.name, n: g.members.length })), unplaced: new Set(names.keys()) };
+		const gk = settings.groupKinds && settings.groupKinds[tab];
+		goState = { tab, list: list.map(g => ({ key: g.key, name: g.name, n: g.members.length })), unplaced: new Set(names.keys()), kinds: gk ? { order: gk.order.slice(), of: Object.assign({}, gk.of) } : { order: [], of: {} } };
 		let o = document.getElementById('grp-order'); if (o) o.remove();
 		o = document.createElement('div'); o.id = 'grp-order';
 		o.style.cssText = 'position:fixed;inset:0;z-index:2000;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:12px;';
-		o.innerHTML = '<div style="background:#1a1d24;border:1px solid #2d3240;border-radius:12px;max-width:520px;width:100%;max-height:90vh;display:flex;flex-direction:column;padding:14px;">' +
+		o.innerHTML = '<div style="background:#1a1d24;border:1px solid #2d3240;border-radius:12px;max-width:560px;width:100%;max-height:90vh;display:flex;flex-direction:column;padding:14px;">' +
 			'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><b>↕ Reihenfolge der Gruppen</b><button class="nav-btn" style="padding:3px 12px;" onclick="closeGroupOrder()">Fertig</button></div>' +
-			'<div style="color:#9aa1b2;font-size:0.85em;margin:6px 0;">Gilt für alle Einträge gleich: eine Gruppe weiter oben steht bei jedem Eintrag auch weiter vorn (z. B. Jahrgang zuerst). Gruppen, die hier noch nicht festgelegt sind, kommen danach.</div>' +
-			'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;"><button class="nav-btn" style="padding:3px 10px;" onclick="groupOrderAuto()" title="Sortiert nach der Stelle, an der die Gruppe bisher im Schnitt stand">Vorschlag aus bisheriger Reihenfolge</button><button class="nav-btn" style="padding:3px 10px;" onclick="groupOrderAz()">A–Z</button></div>' +
+			'<div style="color:#9aa1b2;font-size:0.85em;margin:6px 0;">Gilt für alle Einträge gleich. Gruppen gehören zu einer <b>Art</b> (z. B. Jahrgang, Herkunft, Beruf). Die Arten stehen in der festgelegten Reihenfolge, darin die Gruppen. Gruppen ohne Art und noch nicht eingeordnete kommen zuletzt.</div>' +
+			'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;"><button class="nav-btn" style="padding:3px 10px;" onclick="groupKindsFromRules()" title="Gruppen mit Regeln auf derselben Eigenschaft (z. B. Year) bilden eine Art">Arten aus den Regeln</button><button class="nav-btn" style="padding:3px 10px;" onclick="groupOrderAuto()" title="Sortiert nach der Stelle, an der die Gruppe bisher im Schnitt stand">Reihenfolge wie bisher</button><button class="nav-btn" style="padding:3px 10px;" onclick="groupOrderAz()">A–Z</button><button class="nav-btn" style="padding:3px 10px;" onclick="groupKindNew()">＋ Neue Art</button></div>' +
 			'<div id="grp-order-list" style="overflow:auto;border:1px solid #2a2a2a;border-radius:8px;"></div></div>';
 		document.body.appendChild(o);
 		groupOrderRender();
 	}
 	function groupOrderRender() {
 		const box = document.getElementById('grp-order-list'); if (!box || !goState) return;
-		const L = goState.list;
-		box.innerHTML = L.map((g, i) => '<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-bottom:1px solid #23262e;">' +
-			'<span style="width:22px;text-align:right;color:#777;">' + (i + 1) + '</span>' +
-			'<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + groupPill(g.name) + ' <small style="color:#777;">' + g.n + (goState.unplaced.has(g.key) ? ' · neu' : '') + '</small></span>' +
-			'<button class="nav-btn" style="padding:2px 8px;" title="Ganz nach oben" onclick="groupOrderMove(' + i + ',0)">⤒</button>' +
-			'<button class="nav-btn" style="padding:2px 10px;" onclick="groupOrderMove(' + i + ',' + (i - 1) + ')"' + (i ? '' : ' disabled') + '>▲</button>' +
-			'<button class="nav-btn" style="padding:2px 10px;" onclick="groupOrderMove(' + i + ',' + (i + 1) + ')"' + (i < L.length - 1 ? '' : ' disabled') + '>▼</button></div>').join('');
+		const K = goState.kinds, secs = K.order.map(k => ({ kind: k, gs: [] })).concat([{ kind: '', gs: [] }]);
+		goState.list.forEach(g => { const kd = goKindOf(g); secs.find(x => x.kind === kd).gs.push(g); });
+		const opts = cur => '<option value="">— ohne Art —</option>' + K.order.map(k => '<option value="' + escHtml(k) + '"' + (k === cur ? ' selected' : '') + '>' + escHtml(k) + '</option>').join('') + '<option value="\u0001new">＋ Neue Art…</option>';
+		let o = '';
+		secs.forEach((sec, si) => {
+			if (!sec.kind && !sec.gs.length) return;
+			o += '<div style="display:flex;align-items:center;gap:6px;padding:6px 8px;background:#20242d;border-bottom:1px solid #2a2e38;"><b style="flex:1;">' + (sec.kind ? 'Art: ' + escHtml(sec.kind) : 'Ohne Art') + ' <small style="color:#777;">' + sec.gs.length + '</small></b>' +
+				(sec.kind ? '<button class="nav-btn" style="padding:2px 8px;" title="Art nach oben" onclick="groupKindMove(' + si + ',-1)"' + (si ? '' : ' disabled') + '>▲</button><button class="nav-btn" style="padding:2px 8px;" title="Art nach unten" onclick="groupKindMove(' + si + ',1)"' + (si < K.order.length - 1 ? '' : ' disabled') + '>▼</button>' +
+				'<button class="nav-btn" style="padding:2px 8px;" title="Art umbenennen" onclick="groupKindRename(' + si + ')">✏️</button><button class="nav-btn" style="padding:2px 8px;" title="Art löschen (Gruppen bleiben)" onclick="groupKindDelete(' + si + ')">🗑</button>' : '') + '</div>';
+			sec.gs.forEach((g, i) => {
+				const GI = goState.list.indexOf(g);
+				o += '<div style="display:flex;align-items:center;gap:6px;padding:4px 8px;border-bottom:1px solid #23262e;flex-wrap:wrap;">' +
+					'<span style="flex:1;min-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + groupPill(g.name) + ' <small style="color:#777;">' + g.n + (goState.unplaced.has(g.key) ? ' · neu' : '') + '</small></span>' +
+					'<select style="max-width:130px;" onchange="groupKindSet(' + GI + ', this.value)">' + opts(sec.kind) + '</select>' +
+					'<button class="nav-btn" style="padding:2px 8px;" title="Ganz nach oben in der Art" onclick="groupOrderMove(' + GI + ',-2)">⤒</button>' +
+					'<button class="nav-btn" style="padding:2px 10px;" onclick="groupOrderMove(' + GI + ',-1)"' + (i ? '' : ' disabled') + '>▲</button>' +
+					'<button class="nav-btn" style="padding:2px 10px;" onclick="groupOrderMove(' + GI + ',1)"' + (i < sec.gs.length - 1 ? '' : ' disabled') + '>▼</button></div>';
+			});
+		});
+		const st = box.scrollTop; box.innerHTML = o || '<div style="padding:10px;color:#777;">Keine Gruppen.</div>'; box.scrollTop = st;
 	}
-	function groupOrderSave() { goState.unplaced = new Set(); setGroupOrder(goState.tab, goState.list.map(g => g.key)); groupOrderRender(); }
-	function groupOrderMove(from, to) {
-		const L = goState.list; if (to < 0 || to >= L.length || from === to) return;
-		const [g] = L.splice(from, 1); L.splice(to, 0, g); groupOrderSave();
+	function groupOrderSave() {
+		goState.unplaced = new Set();
+		goState.kinds.of = Object.fromEntries(Object.entries(goState.kinds.of).filter(([k, v]) => v && goState.kinds.order.includes(v)));
+		setGroupOrder(goState.tab, goState.list.map(g => g.key));
+		setGroupKinds(goState.tab, goState.kinds);
+		groupOrderRender();
+	}
+	// dir: -2 = ganz nach oben (in der Art), -1/+1 = eins nach oben/unten innerhalb der Art
+	function groupOrderMove(i, dir) {
+		const L = goState.list; if (!L[i]) return;
+		const kd = goKindOf(L[i]), same = L.map((g, j) => ({ g, j })).filter(x => goKindOf(x.g) === kd);
+		const pos = same.findIndex(x => x.j === i), target = dir === -2 ? 0 : pos + dir;
+		if (target < 0 || target >= same.length || target === pos) return;
+		const [g] = L.splice(i, 1);
+		const idxs = L.map((x, j) => ({ x, j })).filter(y => goKindOf(y.x) === kd).map(y => y.j);
+		const at = target >= idxs.length ? (idxs.length ? idxs[idxs.length - 1] + 1 : L.length) : idxs[target];
+		L.splice(at, 0, g); groupOrderSave();
+	}
+	function groupKindNewName() {
+		const nm = (prompt('Name der neuen Art (z. B. Jahrgang, Herkunft, Beruf):') || '').trim();
+		if (!nm) return '';
+		const ex = goState.kinds.order.find(k => k.toLowerCase() === nm.toLowerCase());
+		if (ex) return ex;
+		goState.kinds.order.push(nm); return nm;
+	}
+	function groupKindNew() { if (groupKindNewName()) groupOrderSave(); }
+	function groupKindSet(gi, val) {
+		const key = goState.list[gi].key;
+		if (val === '\u0001new') { const nm = groupKindNewName(); if (!nm) { groupOrderRender(); return; } val = nm; }
+		if (val) goState.kinds.of[key] = val; else delete goState.kinds.of[key];
+		groupOrderSave();
+	}
+	function groupKindMove(si, d) { const o = goState.kinds.order, j = si + d; if (j < 0 || j >= o.length) return; [o[si], o[j]] = [o[j], o[si]]; groupOrderSave(); }
+	function groupKindRename(si) {
+		const o = goState.kinds.order, old = o[si], nm = (prompt('Neuer Name für die Art „' + old + '“:', old) || '').trim();
+		if (!nm || nm === old) return;
+		if (o.some((k, i) => i !== si && k.toLowerCase() === nm.toLowerCase())) { alert('Diese Art gibt es schon.'); return; }
+		o[si] = nm; Object.keys(goState.kinds.of).forEach(k => { if (goState.kinds.of[k] === old) goState.kinds.of[k] = nm; }); groupOrderSave();
+	}
+	function groupKindDelete(si) {
+		const o = goState.kinds.order, old = o[si];
+		if (!confirm('Art „' + old + '“ löschen? Die Gruppen bleiben erhalten, sie haben dann keine Art.')) return;
+		o.splice(si, 1); groupOrderSave();
+	}
+	// Arten aus den Regeln: Gruppen, deren erste Bedingung dieselbe Eigenschaft prüft, bilden eine Art
+	function groupKindsFromRules() {
+		const rules = (settings.groupRules && settings.groupRules[goState.tab]) || {}, K = goState.kinds;
+		const by = new Map();
+		goState.list.forEach(g => { const r = rules[g.key]; const c = r && r.conds && r.conds[0]; if (c && c.tag && !K.of[g.key]) { if (!by.has(c.tag)) by.set(c.tag, []); by.get(c.tag).push(g.key); } });
+		let added = 0;
+		by.forEach((keys, tag) => {
+			if (keys.length < 2 && !K.order.includes(tag)) return;      // eine einzelne Gruppe ergibt noch keine Art
+			let name = K.order.find(k => k.toLowerCase() === tag.toLowerCase()); if (!name) { name = tag; K.order.push(name); }
+			keys.forEach(k => { K.of[k] = name; added++; });
+		});
+		if (!added) { alert('Keine passenden Regeln gefunden: Arten entstehen, wenn mindestens zwei Gruppen eine Regel auf dieselbe Eigenschaft haben und noch keiner Art zugeordnet sind.'); return; }
+		groupOrderSave();
 	}
 	function groupOrderAz() { goState.list.sort((a, b) => a.name.replace(/^[^\p{L}\p{N}]+/u, '').localeCompare(b.name.replace(/^[^\p{L}\p{N}]+/u, ''), 'de')); groupOrderSave(); }
 	function groupOrderAuto() {
@@ -7619,7 +7718,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		if (!confirm('Gruppe „' + g.name + '“ löschen? Die ' + g.members.length + ' Einträge bleiben erhalten, sie sind nur nicht mehr in dieser Gruppe.')) return;
 		await editGroups(g.members.map(m => m.id), im => { im.groups = getGroups(im).filter(x => groupKey(x) !== g.key); });
 		setGroupRule(h.tab, g.key, null);
-		{ const go = (settings.groupOrder && settings.groupOrder[h.tab]) || []; if (go.includes(g.key)) setGroupOrder(h.tab, go.filter(k => k !== g.key)); }
+		groupKeyChanged(h.tab, g.key, null);
 		if (h.gpanel === g.key) h.gpanel = null;
 		rhgChanged();
 	}
