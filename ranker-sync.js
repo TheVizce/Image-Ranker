@@ -58,10 +58,12 @@
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const fastHash = str => { let h1 = 0xdeadbeef, h2 = 0x41c6ce57; for (let i = 0; i < str.length; i++) { const c = str.charCodeAt(i); h1 = Math.imul(h1 ^ c, 2654435761); h2 = Math.imul(h2 ^ c, 1597334677); } return (h1 >>> 0).toString(36) + (h2 >>> 0).toString(36) + str.length.toString(36); };
   // GitHub-API-Anfragen (außer Bildpakete) bekommen ein Zeitlimit, damit die Sperre bei schlechtem Netz nicht ewig dauert
+  let reqCount = 0, packMB = 0;   // Live-Anzeige in der Sperre: Anfragen und geladene MB des aktuellen Pakets
   const nativeFetch = window.fetch.bind(window);
   window.fetch = function (input, init) {
     try {
       const u = typeof input === 'string' ? input : (input && input.url) || '';
+      if (u.indexOf('https://api.github.com/') === 0) reqCount++;
       if (u.indexOf('https://api.github.com/') === 0 && u.indexOf('/packs/') < 0 && !(init && init.signal) && window.AbortSignal && AbortSignal.timeout) {
         init = Object.assign({}, init, { signal: AbortSignal.timeout(40000) });
       }
@@ -126,6 +128,13 @@
     const c = imgCfg(cfg);
     const r = await fetch(GH.fileUrl(c, 'packs/' + name) + '?ref=' + encodeURIComponent(c.branch), { headers: GH.headers(c, 'application/vnd.github.raw+json'), cache: 'no-store' });
     if (!r.ok) throw await GH.fail(r, 'Laden der Bilder');
+    packMB = 0;
+    if (r.body && r.body.getReader) {      // Stück für Stück lesen, damit die Anzeige mitläuft
+      const rd = r.body.getReader(), parts = [];
+      for (;;) { const x = await rd.read(); if (x.done) break; parts.push(x.value); packMB += x.value.length / 1e6; }
+      packMB = 0;
+      return parsePack(await new Blob(parts).arrayBuffer());
+    }
     return parsePack(await r.arrayBuffer());
   }
 
@@ -277,13 +286,20 @@
 
   /* ---------- Sperre während des Abgleichs ---------- */
   let lockEl = null, lockTimer = null, cancelRequested = false;
-  const lockText = t => { if (lockEl && t && lockEl.style.display !== 'none') lockEl.querySelector('.t').textContent = '☁︎ ' + t; };
+  let lockBase = '', lockSince = 0, lockTick = null;
+  const lockRender = () => {
+    if (!lockEl || lockEl.style.display === 'none') return;
+    const sec = Math.round((Date.now() - lockSince) / 1000);
+    lockEl.querySelector('.t').textContent = '☁︎ ' + lockBase;
+    lockEl.querySelector('.l').textContent = sec + ' s · ' + reqCount + ' Anfragen' + (packMB ? ' · Paket ' + packMB.toFixed(1) + ' MB' : '');
+  };
+  const lockText = t => { if (lockEl && t && lockEl.style.display !== 'none') { lockBase = t; lockRender(); } };
   const checkCancel = () => { if (cancelRequested) throw GH.error('Abgleich abgebrochen. Beim nächsten Start geht es dort weiter, wo es aufgehört hat.'); };
   function setLock(on, text) {
     if (!lockEl) {
       lockEl = document.createElement('div'); lockEl.id = 'sync-lock';
       lockEl.style.cssText = 'position:fixed;inset:0;z-index:2147482000;display:none;align-items:center;justify-content:center;background:transparent;touch-action:none;';
-      lockEl.innerHTML = '<div style="background:rgba(20,22,28,.94);color:#e8eaf0;border:1px solid #2d3240;border-radius:12px;padding:14px 20px;font:14px/1.4 system-ui,-apple-system,sans-serif;max-width:80vw;text-align:center;visibility:hidden;"><div class="t"></div>' +
+      lockEl.innerHTML = '<div style="background:rgba(20,22,28,.94);color:#e8eaf0;border:1px solid #2d3240;border-radius:12px;padding:14px 20px;font:14px/1.4 system-ui,-apple-system,sans-serif;max-width:80vw;text-align:center;visibility:hidden;"><div class="t"></div><div class="l" style="margin-top:4px;font-size:12px;color:#9aa1b2;"></div>' +
         '<div style="margin-top:6px;font-size:12px;color:#9aa1b2;">Einmalig beim ersten Laden dauert es länger. Der Stand wird bei Abbruch später fortgesetzt.</div>' +
         '<button style="margin-top:10px;font:inherit;color:#e8eaf0;background:#222631;border:1px solid #2d3240;border-radius:8px;padding:6px 14px;cursor:pointer;">Abbrechen</button></div>';
       document.body.appendChild(lockEl);
@@ -291,12 +307,14 @@
     }
     const box = lockEl.firstChild;
     if (on) {
+      if (lockEl.style.display === 'none') { lockSince = Date.now(); reqCount = 0; packMB = 0; }
       lockEl.style.display = 'flex'; lockText(text && text !== 'syncing' ? text : 'Gleiche ab…');
+      if (!lockTick) lockTick = setInterval(lockRender, 1000);
       if (!lockTimer) lockTimer = setTimeout(() => { box.style.visibility = 'visible'; }, 700);   // kurze Abgleiche bleiben unsichtbar
     } else {
       lockEl.style.display = 'none'; box.style.visibility = 'hidden'; cancelRequested = false;
       const cb = lockEl.querySelector('button'); if (cb) cb.textContent = 'Abbrechen';
-      clearTimeout(lockTimer); lockTimer = null;
+      clearTimeout(lockTimer); lockTimer = null; clearInterval(lockTick); lockTick = null;
     }
   }
 
