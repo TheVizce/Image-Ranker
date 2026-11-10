@@ -3956,9 +3956,22 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 				</div>`;
 			statusEl.style.display = "block";
 		} else {
-			statusEl.innerHTML = "";
-			statusEl.style.display = "none";
+			statusEl.innerHTML = '<span onclick="focusFewest()" title="Fokus auf das Bild mit den wenigsten Duellen in diesem Reiter" style="cursor:pointer; display:inline-block; padding:2px 10px; border:1px solid var(--line,#333); border-radius:14px; font-size:0.8em; color:#aaa;">🎯 Wenigste Duelle</span>';
+			statusEl.style.display = "block";
 		}
+	}
+	async function focusFewest() {
+		const all = await new Promise(r => db.transaction("images").objectStore("images").getAll().onsuccess = e => r(e.target.result));
+		const list = all.filter(i => i.tab === currentTab);
+		if (list.length < 2) return;
+		const cnt = i => (i.wins || 0) + (i.losses || 0);
+		const min = Math.min(...list.map(cnt));
+		const cands = list.filter(i => cnt(i) === min && Number(i.id) !== Number(focusId));
+		const pick = (cands.length ? cands : list.filter(i => cnt(i) === min))[Math.floor(Math.random() * Math.max(1, cands.length || 1))];
+		if (!pick) return;
+		focusId = null; // setFocus soll setzen, nicht umschalten
+		await setFocus(pick.id);
+		flashNote('🎯 ' + pick.name + ' (' + min + ' Duelle)');
 	}
 	async function editImageInfo(id) {
 		// 1. Bild aus der DB laden
