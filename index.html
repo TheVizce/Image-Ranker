@@ -7621,6 +7621,80 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	// ----- Reihenfolge-Dialog (mit Arten) -----
 	let goState = null;     // { tab, list: [{key,name,n}] (Reihenfolge innerhalb einer Art), kinds: {order, of}, unplaced }
 	const goKindOf = g => goState.kinds.of[g.key] && goState.kinds.order.includes(goState.kinds.of[g.key]) ? goState.kinds.of[g.key] : '';
+	// Übersicht: pro Gruppe mit Voraussetzung die passenden Nicht-Mitglieder und die nicht mehr passenden Mitglieder
+	function grpRuleDiff() {
+		const h = rivalHub, rows = [], plain = [];
+		rhgGroups().forEach(g => {
+			const rule = groupRule(h.tab, g.key);
+			if (!rule) { plain.push(g); return; }
+			const mk = new Set(g.members.map(m => m.id));
+			const bad = g.members.filter(m => !imageMatchesFilter(m, rule, h.defsByName));
+			const cand = h.images.filter(i => !mk.has(i.id) && !groupRejected(i, g.key) && imageMatchesFilter(i, rule, h.defsByName));
+			rows.push({ g, rule, bad, cand });
+		});
+		return { rows, plain };
+	}
+	function openGroupRules() {
+		let o = document.getElementById('grp-rules'); if (o) o.remove();
+		o = document.createElement('div'); o.id = 'grp-rules';
+		o.style.cssText = 'position:fixed;inset:0;z-index:2000;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:12px;';
+		o.innerHTML = '<div style="background:#1a1d24;border:1px solid #2d3240;border-radius:12px;max-width:720px;width:100%;max-height:90vh;display:flex;flex-direction:column;padding:14px;">' +
+			'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><b>📋 Prüfung aller Gruppen</b><button class="nav-btn" style="padding:3px 12px;" onclick="document.getElementById(\'grp-rules\').remove()">Fertig</button></div>' +
+			'<div id="grp-rules-body" style="overflow:auto;margin-top:8px;"></div></div>';
+		document.body.appendChild(o);
+		grpRulesRender();
+	}
+	function grpRulesRender() {
+		const box = document.getElementById('grp-rules-body'); if (!box) return;
+		const h = rivalHub, d = grpRuleDiff(), open = h.grOpen || (h.grOpen = new Set());
+		const nBad = d.rows.reduce((a, r) => a + r.bad.length, 0), nCand = d.rows.reduce((a, r) => a + r.cand.length, 0);
+		let o = '<div style="color:#9aa1b2;font-size:0.85em;margin-bottom:8px;">Nur Gruppen mit Voraussetzung. <b style="color:#7bd88f;">＋ passt, ist aber nicht drin</b> · <b style="color:#e8a33d;">− ist drin, passt nicht mehr</b>. Abgelehnte Vorschläge zählen nicht mit.</div>';
+		o += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">' +
+			'<button class="nav-btn" style="padding:3px 12px;"' + (nCand ? '' : ' disabled') + ' onclick="grpRulesAll(\'add\')">＋ Überall hinzufügen (' + nCand + ')</button>' +
+			'<button class="nav-btn" style="padding:3px 12px;"' + (nBad ? '' : ' disabled') + ' onclick="grpRulesAll(\'rem\')">− Überall entfernen (' + nBad + ')</button></div>';
+		const shown = d.rows.filter(r => r.bad.length || r.cand.length);
+		if (!shown.length) o += '<div style="color:#7bd88f;padding:8px 0;">✓ Alle ' + d.rows.length + ' Gruppen mit Voraussetzung stimmen mit ihren Mitgliedern überein.</div>';
+		const names = (arr, c) => arr.slice().sort((a, b) => b.elo - a.elo).map(i => '<span style="display:inline-block;margin:2px 8px 2px 0;color:' + c + ';cursor:pointer;" onclick="showDetailsByID(' + i.id + ')">' + escHtml(i.name) + '</span>').join('');
+		shown.forEach(r => {
+			const k = r.g.key, isOpen = open.has(k);
+			o += '<div style="border:1px solid #2a2e38;border-radius:8px;margin-bottom:6px;"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 8px;cursor:pointer;" onclick="grpRulesToggle(this.dataset.k)" data-k="' + escHtml(k) + '">' +
+				'<span style="flex:1;min-width:140px;">' + (isOpen ? '▾ ' : '▸ ') + groupPill(r.g.name) + ' <small style="color:#777;">' + r.g.members.length + ' Mitglieder</small></span>' +
+				(r.cand.length ? '<b style="color:#7bd88f;">＋' + r.cand.length + '</b>' : '') + (r.bad.length ? '<b style="color:#e8a33d;">−' + r.bad.length + '</b>' : '') + '</div>';
+			if (isOpen) {
+				o += '<div style="padding:4px 10px 8px;border-top:1px solid #23262e;">';
+				if (r.cand.length) o += '<div style="color:#7bd88f;">＋ passen, nicht drin <button class="nav-btn" style="padding:1px 10px;" data-k="' + escHtml(k) + '" onclick="grpRulesOne(this.dataset.k,\'add\')">alle ' + r.cand.length + ' hinzufügen</button></div><div>' + names(r.cand, '#cfd3dc') + '</div>';
+				if (r.bad.length) o += '<div style="color:#e8a33d;margin-top:6px;">− passen nicht mehr <button class="nav-btn" style="padding:1px 10px;" data-k="' + escHtml(k) + '" onclick="grpRulesOne(this.dataset.k,\'rem\')">alle ' + r.bad.length + ' entfernen</button></div><div>' + names(r.bad, '#cfd3dc') + '</div>';
+				o += '<div style="margin-top:6px;"><a href="#" style="color:#888;" data-k="' + escHtml(k) + '" onclick="grpRulesPanel(this.dataset.k);return false;">Gruppe im Editor öffnen (Auswahl einzeln, ablehnen)</a></div></div>';
+			}
+			o += '</div>';
+		});
+		if (d.plain.length) o += '<div style="color:#777;font-size:0.85em;margin-top:8px;">Ohne Voraussetzung (nicht prüfbar): ' + d.plain.map(g => escHtml(g.name)).join(', ') + '</div>';
+		box.innerHTML = o;
+	}
+	function grpRulesToggle(k) { const s = rivalHub.grOpen; if (s.has(k)) s.delete(k); else s.add(k); grpRulesRender(); }
+	function grpRulesPanel(k) { const h = rivalHub, g = h.glist.find(x => x.key === k); if (!g) return; document.getElementById('grp-rules').remove(); h.gpanel = k; h.gpanelName = g.name; rhgRefreshPanel(); }
+	async function grpRulesApply(rows, mode) {
+		const h = rivalHub;
+		for (const r of rows) {
+			if (mode === 'add' && r.cand.length) await editGroups(r.cand.map(m => m.id), im => { im.groups = getGroups(im).concat(r.g.name); }, true);
+			if (mode === 'rem' && r.bad.length) await editGroups(r.bad.map(m => m.id), im => { im.groups = getGroups(im).filter(x => groupKey(x) !== r.g.key); }, true);
+		}
+		h.gg = null; h.sugg = null;
+		const keep = h.gpanel; renderRivalHubGroups(); if (keep) rhgRefreshPanel();
+		grpRulesRender();
+	}
+	async function grpRulesOne(k, mode) {
+		const r = grpRuleDiff().rows.find(x => x.g.key === k); if (!r) return;
+		const n = mode === 'add' ? r.cand.length : r.bad.length;
+		if (!n || !confirm(n + (mode === 'add' ? ' Einträge zur Gruppe „' : ' Einträge aus der Gruppe „') + r.g.name + (mode === 'add' ? '“ hinzufügen?' : '“ entfernen?'))) return;
+		await grpRulesApply([r], mode);
+	}
+	async function grpRulesAll(mode) {
+		const rows = grpRuleDiff().rows.filter(r => mode === 'add' ? r.cand.length : r.bad.length);
+		const n = rows.reduce((a, r) => a + (mode === 'add' ? r.cand.length : r.bad.length), 0);
+		if (!n || !confirm(n + ' Zuordnungen in ' + rows.length + ' Gruppen ' + (mode === 'add' ? 'hinzufügen?' : 'entfernen?'))) return;
+		await grpRulesApply(rows, mode);
+	}
 	function openGroupOrder() {
 		const h = rivalHub, tab = h.tab;
 		const map = groupsOfImages(h.images);
@@ -7745,7 +7819,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	function renderRivalHubGroups() {
 		const h = rivalHub, view = document.getElementById('rh-view'); if (!view) return;
 		h.glist = rhgGroups();
-		const newBtn = '<button class="nav-btn" style="padding:5px 12px;" onclick="rhgNew()">＋ Neue Gruppe</button>' + (h.glist.length > 1 ? ' <button class="nav-btn" style="padding:5px 12px;" onclick="openGroupOrder()">↕ Reihenfolge</button>' : '');
+		const newBtn = '<button class="nav-btn" style="padding:5px 12px;" onclick="rhgNew()">＋ Neue Gruppe</button>' + (h.glist.length > 1 ? ' <button class="nav-btn" style="padding:5px 12px;" onclick="openGroupOrder()">↕ Reihenfolge</button>' : '') + (h.glist.length ? ' <button class="nav-btn" style="padding:5px 12px;" onclick="openGroupRules()" title="Alle Gruppen mit Voraussetzung: wer passt noch nicht drin, wer passt nicht mehr">📋 Prüfung aller Gruppen</button>' : '');
 		if (!h.glist.length && !h.gpanel) {
 			view.innerHTML = '<div class="rh-empty">Noch keine Gruppen.<br><small>Gruppen sind benannte Mengen (z. B. „Fußballerinnen“, „deutsche Sportlerinnen“). Ein Eintrag kann in mehreren sein – die Gruppen überlappen dann.<br>Du kannst sie hier anlegen, in den Details eines Eintrags oder in der Rangliste per Mehrfachauswahl.</small><br><br>' + newBtn + '</div>';
 			return;
