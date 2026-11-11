@@ -808,6 +808,21 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 @media (prefers-reduced-motion: reduce) { .image-container.duel-in { animation: none; } }
 /* ===== RANGLISTE: Spalten, Kacheln, Mehrfachauswahl ===== */
 .modal.list-mode .modal-content { box-sizing: border-box; max-width: 1500px; width: calc(100vw - 36px); }
+/* ===== Breite Fenster: Statistik, Tag-Statistik, Einstellungen ===== */
+.modal.wide-mode .modal-content { box-sizing: border-box; max-width: 1560px; width: calc(100vw - 36px); }
+.set-wrap { max-width: 620px; margin: 0 auto; }
+.stats-grid { display: block; }
+.stats-cards { display: grid; grid-template-columns: 1fr; gap: 10px; margin-bottom: 20px; }
+@media (min-width: 1300px) {
+	.set-wrap { max-width: none; column-count: 2; column-gap: 22px; }
+	.set-wrap > h2 { column-span: all; }
+	.set-wrap > div { break-inside: avoid; }
+	.stats-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 26px; align-items: start; }
+	.stats-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (min-width: 1700px) {
+	.stats-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
 #rank-table.tiles thead { display: none; }
 #rank-table.tiles tbody { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-top: 12px; }
 #rank-table.tiles tr { display: flex !important; flex-direction: column; align-items: center; gap: 4px; position: relative; padding: 8px 8px 10px; border: 1px solid var(--line, #2a2a2a) !important; border-radius: 14px; background: var(--surface, rgba(255,255,255,0.03)); }
@@ -1035,8 +1050,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
     html[data-theme] #prob-container { gap: 2px 10px; }
 
     /* Fenster: Vollbild */
-    html[data-theme] .modal, html[data-theme] .modal.studio-mode, html[data-theme] .modal.details-mode, html[data-theme] .modal.list-mode { padding: 0; }
-    html[data-theme] .modal-content, html[data-theme] .modal.studio-mode .modal-content, html[data-theme] .modal.details-mode .modal-content, html[data-theme] .modal.list-mode .modal-content { box-sizing: border-box; width: 100%; max-width: none; min-height: 100%; border-radius: 0; border-left: 0; border-right: 0; padding: calc(env(safe-area-inset-top) + 16px) 12px calc(20px + env(safe-area-inset-bottom)); }
+    html[data-theme] .modal, html[data-theme] .modal.studio-mode, html[data-theme] .modal.details-mode, html[data-theme] .modal.list-mode, html[data-theme] .modal.wide-mode { padding: 0; }
+    html[data-theme] .modal-content, html[data-theme] .modal.studio-mode .modal-content, html[data-theme] .modal.details-mode .modal-content, html[data-theme] .modal.list-mode .modal-content, html[data-theme] .modal.wide-mode .modal-content { box-sizing: border-box; width: 100%; max-width: none; min-height: 100%; border-radius: 0; border-left: 0; border-right: 0; padding: calc(env(safe-area-inset-top) + 16px) 12px calc(20px + env(safe-area-inset-bottom)); }
     html[data-theme] .modal { -webkit-backdrop-filter: none; backdrop-filter: none; }   /* sonst scrollt das fixierte Schließen-Kreuz mit */
     /* Schließen-Kreuz: immer sichtbar, unterhalb von Notch/Statusleiste, bleibt beim Scrollen stehen */
     html[data-theme] .modal-content > span { position: fixed !important; right: 12px !important; top: calc(env(safe-area-inset-top) + 10px) !important; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; font-size: 1.9em !important; line-height: 1; background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.22); border-radius: 50%; z-index: 1100; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
@@ -2885,6 +2900,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 				'📊 Rangliste als CSV' +
 			'</button>' +
 		'</div>';
+		html += '<div class="stats-grid"><div>';
 		// 1. Stat-Zeile
 		html += '<div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:12px; background:var(--surface, #1b1b1b); padding:15px; border-radius:16px 16px 0 0; border:1px solid var(--line, #2a2a2a); border-bottom: none;">' +
 			'<div style="text-align:center;">' +
@@ -2934,9 +2950,9 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
             '</div>' +
         '</div>';
 	
-		html += buildStatsInsights(list, allTabMatches);
+		html += '</div><div>' + buildStatsInsights(list, allTabMatches) + '</div></div>';
 
-		html += '<div style="display:grid; grid-template-columns:1fr; gap:10px; margin-bottom:20px;">';
+		html += '<div class="stats-cards">';
 		html += renderStatCard("Wenigste Matches", leastMatchesImg, minMatches + " Matches Insgesamt");
 		html += renderStatCard("Geringste Abdeckung", lowestCoverageImg, Math.round(minCovRate * 100) + "% aller Gegner gesehen");
 		html += renderStatCard("Königsmacher (Punktelieferant)", kingmakerImg, "Spendierte -" + Math.round(maxGivenPoints) + " Elo an Gewinner", "👑");
@@ -2955,6 +2971,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		html += '</div>';
 	
 		showModal(html);
+		document.getElementById('modal').classList.add('wide-mode');
 	}
 
     // --- Helfer-Logik (Display, Scroll, Tabs, Export) ---
@@ -3700,7 +3717,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
         tx.oncomplete = () => { mine.forEach(i => forgetImage(i.id)); invalidateMatchCache(); delete undoStacks[currentTab]; closeModal(); refreshUI(); };
     }
     function showModal(content) {
-        document.getElementById('modal').classList.remove('studio-mode', 'details-mode', 'list-mode');
+        document.getElementById('modal').classList.remove('studio-mode', 'details-mode', 'list-mode', 'wide-mode');
         document.getElementById('modal-body').innerHTML = content;
         document.getElementById('modal').style.display = 'block';
     }
@@ -4230,7 +4247,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		const row = 'display:flex; align-items:center; justify-content:space-between; gap:15px; margin-bottom:10px;';
 		const pct = v => Math.round(v * 100);
 
-		let h = '<div style="max-width:620px; margin:0 auto;">';
+		let h = '<div class="set-wrap">';
 		h += '<h2 style="margin:0 0 20px 0;">⚙️ Einstellungen</h2>';
 
 		// --- Matchmaking ---
@@ -4433,6 +4450,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		h += '<div style="text-align:right;"><button class="secondary" onclick="resetSettings()">Einstellungen auf Standard zurücksetzen</button></div>';
 		h += '</div>';
 		showModal(h);
+		document.getElementById('modal').classList.add('wide-mode');
 		checkStorageHealth().then(r => {
 			const el = document.getElementById('storage-info'); if (!el) return;
 			const mb = v => (v / 1048576).toFixed(v > 1e8 ? 0 : 1).replace('.', ',') + ' MB';
@@ -6719,7 +6737,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 				dn: (direct.get(key) ? direct.get(key).w + direct.get(key).l : 0), direct: (direct.get(key) && direct.get(key).w + direct.get(key).l) ? direct.get(key).w / (direct.get(key).w + direct.get(key).l) : null };
 		});
 
-		let h = '<div style="max-width:760px; margin:0 auto;"><h2 style="margin:0 0 10px 0;">🏷️ Tag-Statistik (Tab „' + escHtml(currentTab) + '“)</h2>';
+		let h = '<div style="max-width:1200px; margin:0 auto;"><h2 style="margin:0 0 10px 0;">🏷️ Tag-Statistik (Tab „' + escHtml(currentTab) + '“)</h2>';
 		h += '<div style="display:flex; align-items:center; gap:10px; margin-bottom:12px;">Eigenschaft: <select onchange="openTagStats(this.value)" style="background:#1a1a1a; border:1px solid #333; color:#eee; border-radius:4px; padding:5px 8px;">' +
 			ctx.defs.map(d => '<option value="' + escHtml(d.tagName) + '"' + (d.tagName === tagStatsTag ? ' selected' : '') + '>' + escHtml(d.tagName) + ' (' + TAG_TYPES[tagTypeOf(d)] + ')</option>').join('') +
 			'</select><span style="color:#888; font-size:0.85em;">Ø Elo aller Bilder: <b>' + Math.round(overall) + '</b></span></div>';
@@ -6731,6 +6749,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		h += '<div style="color:#666; font-size:0.8em; margin-bottom:8px;"><b>Siegquote</b> zählt alle Duelle der Bilder dieses Werts. <b>Direkt</b> zählt nur Duelle gegen Bilder mit einem <i>anderen</i> Wert (in Klammern: Anzahl) und zeigt, welcher Wert sich tatsächlich durchsetzt, wenn beide aufeinandertreffen.</div>';
 		h += '<div id="tag-stats-table"></div></div>';
 		showModal(h);
+		document.getElementById('modal').classList.add('wide-mode');
 		window._tagStatsOverall = overall;
 		renderTagStatsTable();
 	}
