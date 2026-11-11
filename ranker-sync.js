@@ -511,6 +511,7 @@
       fields: ['settings', 'tabs'],
       shards: 64,
       stampDelay: 2000,
+      autoSync: false,   // kein Abgleich bei Tab-Wechsel, Wieder-Online, Verlassen (Option in sync-v1.js)
       get: getState,
       apply: applyState,
       beforeSync: async ({ config, progress }) => {
@@ -530,13 +531,15 @@
     window.RANKER_SYNC = SYNC;
     try { const n = lsGet('syncNotice'); if (n) { lsSet('syncNotice', ''); setTimeout(() => alert('☁︎ ' + n), 1200); } } catch (e) {}
     // Abgleich nur beim Start und wenn du ihn auslöst (☁︎-Feld → „Jetzt abgleichen“, Einstellungen oder Hinweis „Duelle hochladen“).
-    // Der gemeinsame Sync würde sonst bei jedem Tab-Wechsel, Wieder-Online und Verlassen der Seite von selbst abgleichen:
-    // diese drei Ereignisse werden nur während SYNC.start() verworfen (sync-v1.js selbst bleibt unverändert).
-    const skip = new Set(['visibilitychange', 'online', 'pagehide']);
-    const dAdd = document.addEventListener, wAdd = window.addEventListener;
-    document.addEventListener = function (t, ...r) { if (!skip.has(t)) return dAdd.call(document, t, ...r); };
-    window.addEventListener = function (t, ...r) { if (!skip.has(t)) return wAdd.call(window, t, ...r); };
-    try { SYNC.start(); } finally { document.addEventListener = dAdd; window.addEventListener = wAdd; }
+    // Neuer sync-v1.js kennt autoSync:false. Ist noch eine ältere Version im Browser-Zwischenspeicher, werden die drei Ereignisse während start() wie früher verworfen.
+    if ((ToolSync.features || []).includes('autoSync')) SYNC.start();
+    else {
+      const skip = new Set(['visibilitychange', 'online', 'pagehide']);
+      const dAdd = document.addEventListener, wAdd = window.addEventListener;
+      document.addEventListener = function (t, ...r) { if (!skip.has(t)) return dAdd.call(document, t, ...r); };
+      window.addEventListener = function (t, ...r) { if (!skip.has(t)) return wAdd.call(window, t, ...r); };
+      try { SYNC.start(); } finally { document.addEventListener = dAdd; window.addEventListener = wAdd; }
+    }
     updateNote();
     setInterval(() => { if (document.visibilityState === 'visible') updateNote(); }, 5000);
   });
