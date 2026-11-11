@@ -1,0 +1,34 @@
+const {chromium}=require('playwright');const fs=require('fs');const cp=require('child_process');
+(async()=>{const b=await chromium.launch();let f=0;const ok=(c,m)=>{console.log(c?'✔':'✘',m);if(!c)f++};
+const ctx=await b.newContext({acceptDownloads:true});const p=await ctx.newPage();const errs=[];p.on('pageerror',e=>errs.push(e.message));p.on('dialog',d=>d.accept());
+await p.goto('file://'+process.cwd()+'/Ranking.html');await p.waitForFunction(()=>db!==null);
+const data=[0,1,2,3,4].map(i=>fs.readFileSync(`imgs/i${i}.jpg`).toString('base64'));
+await p.evaluate(async data=>{const tx=db.transaction(['images','matches','tagDefinitions'],'readwrite');
+data.forEach((b64,i)=>{const bin=atob(b64);const u=new Uint8Array(bin.length);for(let k=0;k<bin.length;k++)u[k]=bin.charCodeAt(k);tx.objectStore('images').add({tab:'Standard',name:'Bild äöü '+i,blob:new Blob([u],{type:'image/jpeg'}),elo:1200+i,wins:i,losses:0,history:[1200],tags:{Typ:{value:'Feuer'}}});});
+tx.objectStore('tagDefinitions').add({tab:'Standard',tagName:'Typ',options:['Feuer'],type:'exact'});
+tx.objectStore('matches').add({leftId:1,rightId:2,winnerId:'left',delta:5,tab:'Standard',time:Date.now()});
+await new Promise(r=>tx.oncomplete=r);},data);
+const sums=async()=>p.evaluate(async()=>{const all=await idbGetAll(db.transaction('images').objectStore('images'));const out=[];for(const i of all){const buf=new Uint8Array(await i.blob.arrayBuffer());let h=0;for(const x of buf)h=(h*31+x)>>>0;out.push(i.name+':'+i.blob.size+':'+i.blob.type+':'+h)}return out.sort().join('|')});
+const before=await sums();
+const [dl]=await Promise.all([p.waitForEvent('download'),p.evaluate(()=>exportFullSystem())]);
+const zf=process.cwd()+'/t21.zip';await dl.saveAs(zf);
+ok(/ranker_backup_\d{4}-\d\d-\d\d\.zip/.test(dl.suggestedFilename()),'Dateiname '+dl.suggestedFilename());
+const t=cp.execSync(`python3 -c "import zipfile;z=zipfile.ZipFile('${zf}');print(z.testzip(),len(z.namelist()),sorted(z.namelist())[:3])"`).toString().trim();
+ok(t.startsWith('None 6'),'ZIP gültig (Python testzip) und 6 Dateien: '+t);
+// Import in frischem Kontext
+const p2=await (await b.newContext()).newPage();p2.on('pageerror',e=>errs.push(e.message));p2.on('dialog',d=>d.accept());
+await p2.goto('file://'+process.cwd()+'/Ranking.html');await p2.waitForFunction(()=>db!==null);
+await Promise.all([p2.waitForEvent('load'),p2.setInputFiles('#backup-input',zf)]);await p2.waitForFunction(()=>db!==null);await p2.waitForTimeout(1500);
+const sums2=await p2.evaluate(async()=>{const all=await idbGetAll(db.transaction('images').objectStore('images'));const out=[];for(const i of all){const buf=new Uint8Array(await i.blob.arrayBuffer());let h=0;for(const x of buf)h=(h*31+x)>>>0;out.push(i.name+':'+i.blob.size+':'+i.blob.type+':'+h)}return out.sort().join('|')});
+ok(sums2===before,'Bilder nach ZIP-Import byte-identisch (Name, Größe, Typ, Prüfsumme)');
+ok(await p2.evaluate(async()=>(await getMatches()).length)===1&&await p2.evaluate(async()=>(await getTagDefinitionsForTab('Standard')).length)===1,'Duelle und Eigenschaften übernommen');
+// Altes JSON-Format
+const legacy=await p.evaluate(async()=>{const all=await idbGetAll(db.transaction('images').objectStore('images'));const imgs=await Promise.all(all.map(async i=>({...i,blob:await new Promise(r=>{const rd=new FileReader();rd.onloadend=()=>r(rd.result);rd.readAsDataURL(i.blob)})})));return JSON.stringify({tabs:['Standard'],images:imgs,matches:[],exportedAt:Date.now()})});
+fs.writeFileSync('t21.json',legacy);
+const p3=await (await b.newContext()).newPage();p3.on('pageerror',e=>errs.push(e.message));p3.on('dialog',d=>d.accept());
+await p3.goto('file://'+process.cwd()+'/Ranking.html');await p3.waitForFunction(()=>db!==null);
+await Promise.all([p3.waitForEvent('load'),p3.setInputFiles('#backup-input','t21.json')]);await p3.waitForFunction(()=>db!==null);await p3.waitForTimeout(1500);
+ok(await p3.evaluate(async()=>(await idbGetAll(db.transaction('images').objectStore('images'))).length)===5,'Altes JSON-Backup weiterhin importierbar (5 Bilder)');
+ok((await p.locator('#storage-warn').count())+(await p2.locator('#storage-warn').count())+(await p3.locator('#storage-warn').count())===0,'Beim Export/Import keine Speicher-Warnung');
+ok(errs.length===0,'keine JS-Fehler '+errs);
+await b.close();process.exit(f?1:0)})();

@@ -1,0 +1,17 @@
+const {chromium}=require('playwright');
+(async()=>{const b=await chromium.launch();const p=await (await b.newContext({viewport:{width:900,height:1400}})).newPage();let f=0;const ok=(c,m)=>{console.log(c?'✔':'✘',m);if(!c)f++};const errs=[];p.on('pageerror',e=>errs.push(e.message));
+await p.goto('file://'+process.cwd()+'/Ranking.html');await p.waitForFunction(()=>db!==null);
+await p.evaluate(async()=>{const tx=db.transaction('images','readwrite');const st=tx.objectStore('images');
+for(let i=0;i<30;i++)st.add({tab:'Standard',name:'P'+i,blob:new Blob(['x'],{type:'image/png'}),elo:1500-i*5,wins:4+i,losses:4+i,history:[1200],tags:{}});
+[0,3,7].forEach((d,i)=>st.add({tab:'Standard',name:'N'+i,blob:new Blob(['x'],{type:'image/png'}),elo:1200,wins:d,losses:0,history:[1200],tags:{}}));
+await new Promise(r=>tx.oncomplete=r)});
+await p.reload();await p.waitForFunction(()=>db!==null);await p.waitForTimeout(900);
+const run=async(v)=>p.evaluate(async(v)=>{updateSetting('matchupMode','STANDARD');updateSetting('newcomerFirst',v);let n=0,z=0;for(let k=0;k<60;k++){await loadMatchup();if(/^N/.test(curL.name))n++;if(curL.name==='N0')z++}return {n,z}},v);
+const a=await run(1);ok(a.n===60&&a.z===60,'100 %: immer Neuling mit den wenigsten Duellen (N0): '+JSON.stringify(a));
+const c=await run(0);ok(c.n<25,'0 %: nur zufällig ('+c.n+'/60)');
+const d=await run(0.5);ok(d.n>=25&&d.n<=52,'50 %: etwa die Hälfte+ ('+d.n+'/60)');
+await p.evaluate(()=>openSettings());await p.waitForTimeout(500);
+ok(await p.locator('#set-newcomerFirst').count()===1&&await p.locator('#set-placementShare').count()===1,'beide Einstellungen sichtbar');
+await p.screenshot({path:'set2.png'});
+ok(errs.length===0,'keine JS-Fehler '+errs);
+await b.close();process.exit(f?1:0)})();

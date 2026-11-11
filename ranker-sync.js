@@ -234,6 +234,9 @@
     const rem = []; for (const c of data.chunks || []) for (const m of c.items || []) rem.push(m);
     const loc = await getAll(d, 'matches'), byId = new Map(loc.map(x => [x.id, x])), ids = new Set(rem.map(x => x.id));
     const put = rem.filter(x => { const l = byId.get(x.id); return !l || H(l) !== H(x); });
+    // Gleiche ID, anderes Duell (zwei Geräte haben unabhängig gespeichert): das lokale Duell nicht überschreiben und verlieren, sondern unter neuer ID erhalten
+    const mkey = m => [m.leftId, m.rightId, m.winnerId, m.time].join('|');
+    const clash = put.filter(x => { const l = byId.get(x.id); return l && mkey(l) !== mkey(x); }).map(x => byId.get(x.id));
     let kept = 0;
     const del = loc.filter(x => {
       if (ids.has(x.id)) return false;
@@ -248,6 +251,12 @@
         put.slice(i, i + 4000).forEach(x => t.objectStore('matches').put(x));
         del.slice(i, i + 4000).forEach(id => t.objectStore('matches').delete(id));
         await waitT(t);
+      }
+      if (clash.length) {
+        const t = d.transaction('matches', 'readwrite');
+        clash.forEach(m => { const c = Object.assign({}, m); delete c.id; t.objectStore('matches').add(c); });
+        await waitT(t);
+        try { lsSet('syncNotice', clash.length + ' Duelle von diesem Gerät hatten dieselbe ID wie andere Duelle aus der Cloud (zwei Geräte haben unabhängig gespeichert). Sie wurden nicht überschrieben, sondern unter neuer ID behalten und werden beim nächsten Abgleich hochgeladen. Tipp: Vor dem Abstimmen immer erst abgleichen.'); } catch (e) {}
       }
       needReload = true;
     }
@@ -519,6 +528,7 @@
       }
     });
     window.RANKER_SYNC = SYNC;
+    try { const n = lsGet('syncNotice'); if (n) { lsSet('syncNotice', ''); setTimeout(() => alert('☁︎ ' + n), 1200); } } catch (e) {}
     // Abgleich nur beim Start und wenn du ihn auslöst (☁︎-Feld → „Jetzt abgleichen“, Einstellungen oder Hinweis „Duelle hochladen“).
     // Der gemeinsame Sync würde sonst bei jedem Tab-Wechsel, Wieder-Online und Verlassen der Seite von selbst abgleichen:
     // diese drei Ereignisse werden nur während SYNC.start() verworfen (sync-v1.js selbst bleibt unverändert).

@@ -1,0 +1,11 @@
+const {chromium}=require('playwright');
+(async()=>{const b=await chromium.launch();const p=await (await b.newContext({viewport:{width:1200,height:900}})).newPage();let f=0;const ok=(c,m)=>{console.log(c?'✔':'✘',m);if(!c)f++};const errs=[];p.on('pageerror',e=>errs.push(e.message));
+await p.goto('file://'+process.cwd()+'/Ranking.html');await p.waitForFunction(()=>db!==null);
+await p.evaluate(async()=>{const tx=db.transaction("images","readwrite");const st=tx.objectStore("images");const c=await new Promise(r=>st.getAll().onsuccess=e=>r(e.target.result));for(const i of c)st.delete(i.id);
+for(let n=0;n<5;n++)st.put({id:9000+n,name:'T'+n,tab:currentTab,elo:1000+n,wins:n+3,losses:0,streak:0,history:[],peak:1000,tags:{}});
+await new Promise(r=>tx.oncomplete=r);focusId=null;focusCount=0;await updateFocusUI();});
+ok(/Wenigste Duelle/.test(await p.textContent('#focus-status')),'Knopf sichtbar ohne Fokus');
+await p.evaluate(()=>focusFewest());await p.waitForTimeout(500);
+const r=await p.evaluate(()=>focusId);ok(r===9000,'Fokus auf T0 (3 Duelle): '+r);const fc=await p.evaluate(()=>focusCount);ok(fc===7,'Fokus-Länge 7 (Grenze 10 minus 3): '+fc);
+ok(/Fokus-Modus/.test(await p.textContent('#focus-status')),'Banner aktiv');
+ok(errs.length===0,'keine JS-Fehler '+errs);await b.close();process.exit(f?1:0)})();

@@ -1,0 +1,16 @@
+const {chromium}=require('playwright');
+(async()=>{const b=await chromium.launch();const p=await (await b.newContext({viewport:{width:1400,height:850}})).newPage();let f=0;const ok=(c,m)=>{console.log(c?'✔':'✘',m);if(!c)f++};const errs=[];p.on('pageerror',e=>errs.push(e.message));
+await p.goto('file://'+process.cwd()+'/Ranking.html');await p.waitForFunction(()=>db!==null);
+await p.evaluate(async()=>{const tx=db.transaction('images','readwrite');for(let i=0;i<6;i++)tx.objectStore('images').add({tab:'Standard',name:'E'+i,blob:new Blob(['x'],{type:'image/png'}),elo:1200,wins:0,losses:0,history:[1200],tags:{}});await new Promise(r=>tx.oncomplete=r)});
+await p.reload();await p.waitForFunction(()=>db!==null);await p.waitForTimeout(1000);
+const n=await p.locator('.duel-info-btn').count();ok(n===2,'zwei Info-Knöpfe: '+n);
+const before=await p.evaluate(async()=>(await getMatches()).length);
+const nameR=await p.evaluate(()=>curR.name);
+await p.locator('#container-right .duel-info-btn').click();await p.waitForTimeout(600);
+const m=await p.evaluate(()=>({open:getComputedStyle(document.getElementById('modal')).display!=='none',id:currentDetailId,rid:curR.id,after:0}));
+ok(m.open&&m.id===m.rid,'Details des rechten Eintrags offen ('+nameR+')');
+const after=await p.evaluate(async()=>(await getMatches()).length);
+ok(after===before,'keine Stimme abgegeben');
+await p.screenshot({path:'info.png'});
+ok(errs.length===0,'keine JS-Fehler '+errs);
+await b.close();process.exit(f?1:0)})();

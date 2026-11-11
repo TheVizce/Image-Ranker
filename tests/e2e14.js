@@ -1,0 +1,16 @@
+const {chromium}=require('playwright');
+(async()=>{const b=await chromium.launch();const p=await (await b.newContext()).newPage();let f=0;const ok=(c,m)=>{console.log(c?'✔':'✘',m);if(!c)f++};
+await p.goto('file://'+process.cwd()+'/Ranking.html');await p.waitForFunction(()=>db!==null);
+await p.evaluate(async()=>{const tx=db.transaction(['images'],'readwrite');['A','B','C'].forEach((n,i)=>tx.objectStore('images').add({tab:'Standard',name:n,blob:new Blob(['x'],{type:'image/png'}),elo:1200,wins:0,losses:0,history:[1200],tags:{}}));await new Promise(r=>tx.oncomplete=r);});
+await p.reload();await p.waitForFunction(()=>db!==null);await p.waitForTimeout(800);
+ok(await p.evaluate(()=>!document.getElementById('display-left').classList.contains('fit-contain')),'Standard: Zuschnitt');
+await p.evaluate(()=>openSettings&&openSettings());await p.waitForSelector('#set-imageFit');
+await p.check('#set-imageFit');await p.waitForTimeout(600);
+ok(await p.evaluate(()=>JSON.parse(localStorage.getItem('ranker.settings')).imageFit.Standard==='contain'),'gespeichert');
+await p.evaluate(()=>closeModal());await p.waitForTimeout(500);
+ok(await p.evaluate(()=>document.getElementById('display-left').classList.contains('fit-contain')),'Duell: ganzes Bild');
+await p.evaluate(()=>showDetailsByID(1));await p.waitForSelector('.dt-img');
+ok(await p.evaluate(()=>document.querySelector('.dt-img').classList.contains('fit-contain-img')),'Details: ganzes Bild');
+await p.evaluate(()=>closeModal());await p.evaluate(()=>openSettings());await p.waitForSelector('#set-imageFit');await p.uncheck('#set-imageFit');await p.waitForTimeout(400);
+ok(await p.evaluate(()=>!JSON.parse(localStorage.getItem('ranker.settings')).imageFit.Standard),'wieder aus');
+await b.close();process.exit(f?1:0)})();

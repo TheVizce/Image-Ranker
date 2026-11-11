@@ -3962,16 +3962,28 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	}
 	async function focusFewest() {
 		const all = await new Promise(r => db.transaction("images").objectStore("images").getAll().onsuccess = e => r(e.target.result));
-		const list = all.filter(i => i.tab === currentTab);
+		let list = all.filter(i => i.tab === currentTab);
 		if (list.length < 2) return;
+		// Duell-Filter des Reiters beachten (wie im Matchup), sonst alle
+		const mf = matchFilters[currentTab];
+		if (filterIsActive(mf)) {
+			const defsByName = await getDefsByName(currentTab);
+			const f = list.filter(i => imageMatchesFilter(i, mf, defsByName));
+			if (f.length >= 2) list = f;
+		}
 		const cnt = i => (i.wins || 0) + (i.losses || 0);
 		const min = Math.min(...list.map(cnt));
 		const cands = list.filter(i => cnt(i) === min && Number(i.id) !== Number(focusId));
-		const pick = (cands.length ? cands : list.filter(i => cnt(i) === min))[Math.floor(Math.random() * Math.max(1, cands.length || 1))];
+		const pool = cands.length ? cands : list.filter(i => cnt(i) === min);
+		const pick = pool[Math.floor(Math.random() * pool.length)];
 		if (!pick) return;
 		focusId = null; // setFocus soll setzen, nicht umschalten
 		await setFocus(pick.id);
-		flashNote('🎯 ' + pick.name + ' (' + min + ' Duelle)');
+		// Kein Marathon: so viele Duelle, bis das Bild die „Neu“-Grenze erreicht (mindestens 5), höchstens die eingestellte Fokus-Länge
+		focusCount = Math.min(settings.focusMatches, Math.max(5, (settings.uncertainBelow || 10) - min));
+		saveFocusState();
+		await updateFocusUI();
+		flashNote('🎯 ' + pick.name + ' (' + min + ' Duelle) – ' + focusCount + ' Duelle Fokus');
 	}
 	async function editImageInfo(id) {
 		// 1. Bild aus der DB laden
@@ -5050,6 +5062,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		el.textContent = text; el.style.display = text ? 'block' : 'none';
 	}
 	async function importImages(files) {
+		// Neue Bilder bekommen ihre ID vom Gerät: am Handy angelegte würden mit PC-IDs kollidieren. Deshalb nur am PC.
+		if (isMobileDevice()) { document.getElementById('file-input').value = ''; alert('Neue Bilder bitte am PC hinzufügen.\nGrund: Am Handy vergebene IDs können mit denen vom PC zusammenfallen, dann gehen beim Abgleich Bilder oder Duelle verloren.'); return; }
 		files = [...files];
 		if (!files.length) return;
 		let skip = new Set(), hashes = new Map();
@@ -7711,7 +7725,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		o.innerHTML = '<div style="background:#1a1d24;border:1px solid #2d3240;border-radius:12px;max-width:560px;width:100%;max-height:90vh;display:flex;flex-direction:column;padding:14px;">' +
 			'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><b>↕ Reihenfolge der Gruppen</b><button class="nav-btn" style="padding:3px 12px;" onclick="closeGroupOrder()">Fertig</button></div>' +
 			'<div style="color:#9aa1b2;font-size:0.85em;margin:6px 0;">Gilt für alle Einträge gleich. Gruppen gehören zu einer <b>Art</b> (z. B. Jahrgang, Herkunft, Beruf). Die Arten stehen in der festgelegten Reihenfolge, darin die Gruppen. Gruppen ohne Art und noch nicht eingeordnete kommen zuletzt.</div>' +
-			'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;"><button class="nav-btn" style="padding:3px 10px;" onclick="groupKindsFromRules()" title="Gruppen mit Regeln auf derselben Eigenschaft (z. B. Year) bilden eine Art">Arten aus den Regeln</button><button class="nav-btn" style="padding:3px 10px;" onclick="groupOrderAuto()" title="Sortiert nach der Stelle, an der die Gruppe bisher im Schnitt stand">Reihenfolge wie bisher</button><button class="nav-btn" style="padding:3px 10px;" onclick="groupOrderAz()">A–Z</button><button class="nav-btn" style="padding:3px 10px;" onclick="groupKindNew()">＋ Neue Art</button></div>' +
+			'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;"><button class="nav-btn" style="padding:3px 10px;" onclick="groupKindsFromRules()" title="Gruppen mit Regeln auf derselben Eigenschaft (z. B. Year) bilden eine Art">Arten aus den Regeln</button><button class="nav-btn" style="padding:3px 10px;" onclick="groupOrderAz()">A–Z</button><button class="nav-btn" style="padding:3px 10px;" onclick="groupKindNew()">＋ Neue Art</button></div>' +
 			'<div id="grp-order-list" style="overflow:auto;border:1px solid #2a2a2a;border-radius:8px;"></div></div>';
 		document.body.appendChild(o);
 		groupOrderRender();
@@ -7798,12 +7812,6 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		groupOrderSave();
 	}
 	function groupOrderAz() { goState.list.sort((a, b) => a.name.replace(/^[^\p{L}\p{N}]+/u, '').localeCompare(b.name.replace(/^[^\p{L}\p{N}]+/u, ''), 'de')); groupOrderSave(); }
-	function groupOrderAuto() {
-		const h = rivalHub, sum = new Map(), n = new Map();
-		h.images.forEach(im => (Array.isArray(im.groups) ? im.groups : []).forEach((g, i) => { const k = groupKey(g); sum.set(k, (sum.get(k) || 0) + i); n.set(k, (n.get(k) || 0) + 1); }));
-		goState.list.sort((a, b) => ((sum.get(a.key) || 0) / (n.get(a.key) || 1)) - ((sum.get(b.key) || 0) / (n.get(b.key) || 1)) || b.n - a.n);
-		groupOrderSave();
-	}
 	function closeGroupOrder() { const o = document.getElementById('grp-order'); if (o) o.remove(); goState = null; rhgChanged(); }
 	async function rhgDelete(i) {
 		const h = rivalHub, g = h.glist[i]; if (!g) return;

@@ -1,0 +1,26 @@
+const {chromium}=require('playwright');
+(async()=>{const b=await chromium.launch();const p=await (await b.newContext({viewport:{width:1500,height:900}})).newPage();let f=0;const ok=(c,m)=>{console.log(c?'✔':'✘',m);if(!c)f++};const errs=[];p.on('pageerror',e=>errs.push(e.message));p.on('dialog',d=>d.accept());
+await p.goto('file://'+process.cwd()+'/Ranking.html');await p.waitForFunction(()=>db!==null);
+await p.evaluate(async()=>{const tx=db.transaction(['images','tagDefinitions'],'readwrite');
+const nm=['Delta','alpha','Charlie','Bravo','Echo'],yr=[2005,1999,null,2010,2001];
+for(let i=0;i<5;i++)tx.objectStore('images').add({tab:'Standard',name:nm[i],blob:new Blob(['x'],{type:'image/png'}),elo:1300-i*20,wins:i,losses:5-i,history:[1200],tags:yr[i]?{Jahr:{value:String(yr[i])}}:{}});
+tx.objectStore('tagDefinitions').add({tab:'Standard',tagName:'Jahr',type:'number',options:[],tolerance:2});
+await new Promise(r=>tx.oncomplete=r);});
+await p.reload();await p.waitForFunction(()=>db!==null);await p.waitForTimeout(800);
+await p.evaluate(()=>openFullRanking());await p.waitForSelector('#rank-table tbody tr');
+const names=()=>p.$$eval('#rank-table tbody tr .c-name > span:first-child',e=>e.map(x=>x.textContent).join(','));
+ok(await names()==='Delta,alpha,Charlie,Bravo,Echo','Start: Rang-Reihenfolge');
+await p.click('th[data-sort="name"]');ok(await names()==='alpha,Bravo,Charlie,Delta,Echo','Name A→Z (ohne Groß/Klein): '+await names());
+await p.click('th[data-sort="name"]');ok(await names()==='Echo,Delta,Charlie,Bravo,alpha','Name umgekehrt');
+await p.click('th[data-sort="win"]');ok((await names()).startsWith('Echo'),'Winrate absteigend: '+await names());
+await p.selectOption('#rank-sort-sel','tag:0');ok(await names()==='alpha,Echo,Delta,Bravo,Charlie','Jahr aufsteigend, Leere am Ende: '+await names());
+await p.click('#rank-sort-dir');ok((await names()).endsWith('Charlie'),'Jahr absteigend, Leere weiter am Ende: '+await names());
+await p.selectOption('#rank-sort-sel','rank');ok(await names()==='Delta,alpha,Charlie,Bravo,Echo','Auswahl „Rang“ stellt Original her');
+await p.click('#rank-sort-dir');ok((await names()).startsWith('Echo'),'Richtungs-Knopf');
+await p.evaluate(()=>{rankSort={key:'rank',dir:1}});
+// Suche + Sortierung vertragen sich
+await p.fill('#search-box','a');await p.click('th[data-sort="name"]');
+ok(await p.$$eval('#rank-table tbody tr',r=>r.filter(x=>x.style.display!=='none').length)>0,'Suche weiter aktiv');
+ok(errs.length===0,'keine JS-Fehler '+errs);
+await p.screenshot({path:'shots/rank_sort.png'});
+await b.close();process.exit(f?1:0)})();

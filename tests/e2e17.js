@@ -1,0 +1,20 @@
+const {chromium}=require('playwright');const fs=require('fs');
+(async()=>{const b=await chromium.launch();const p=await (await b.newContext({viewport:{width:1600,height:900}})).newPage();let f=0;const ok=(c,m)=>{console.log(c?'✔':'✘',m);if(!c)f++};const errs=[];p.on('pageerror',e=>errs.push(e.message));p.on('dialog',d=>d.accept());
+await p.goto('file://'+process.cwd()+'/Ranking.html');await p.waitForFunction(()=>db!==null);
+await p.evaluate(async()=>{const tx=db.transaction(['images','tagDefinitions','matches'],'readwrite');
+for(let i=0;i<6;i++)tx.objectStore('images').add({tab:'Standard',name:'N'+i,blob:new Blob(['x'],{type:'image/png'}),elo:1500-i*30,wins:3,losses:1,history:[1200],tags:i%2?{Typ:{value:'Feuer'}}:{}});
+tx.objectStore('tagDefinitions').add({tab:'Standard',tagName:'Typ',options:['Feuer'],type:'exact'});
+for(let k=0;k<40;k++){const a=1+k%6,c=1+(k+1+(k%3))%6; if(a!==c)tx.objectStore('matches').add({leftId:a,rightId:c,winnerId:k%2?'left':'right',delta:8,tab:'Standard',time:1000+k});}
+await new Promise(r=>tx.oncomplete=r);});
+await p.reload();await p.waitForFunction(()=>db!==null);await p.waitForTimeout(800);
+await p.evaluate(()=>showDetailsByID(3));await p.waitForSelector('.dt-nav');await p.waitForTimeout(700);
+const rh=await p.textContent('#dt-rank-history');ok(/Bester Rang/.test(rh),'Rang-Verlauf: '+rh.slice(0,60));
+ok(await p.evaluate(()=>currentDetailId)===3,'id 3');
+await p.keyboard.press('ArrowRight');await p.waitForTimeout(600);ok(await p.evaluate(()=>currentDetailId)===4,'→ nächster (Rang) = id 4');
+await p.keyboard.press('ArrowLeft');await p.keyboard.press('ArrowLeft');await p.waitForTimeout(800);ok(await p.evaluate(()=>currentDetailId)===2,'← ← = id 2');
+await p.selectOption('#dt-skip','Typ');await p.evaluate(()=>showDetailsByID(1));await p.waitForTimeout(500);
+await p.selectOption('#dt-skip','Typ');await p.click('.dt-nav button:has-text("›")');await p.waitForTimeout(700);
+ok(await p.evaluate(()=>currentDetailId)===3,'Nur ohne Typ: von 1 zu 3 (2 hat Typ)');
+await p.screenshot({path:'shots/details_nav.png'});
+ok(errs.length===0,'keine JS-Fehler '+errs);
+await b.close();process.exit(f?1:0)})();

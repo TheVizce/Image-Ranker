@@ -1,0 +1,15 @@
+const {chromium}=require('playwright');
+(async()=>{const b=await chromium.launch();const p=await (await b.newContext({viewport:{width:1400,height:850}})).newPage();let f=0;const ok=(c,m)=>{console.log(c?'✔':'✘',m);if(!c)f++};const errs=[];p.on('pageerror',e=>errs.push(e.message));
+await p.goto('file://'+process.cwd()+'/Ranking.html');await p.waitForFunction(()=>db!==null);
+await p.evaluate(async()=>{const tx=db.transaction('images','readwrite');for(let i=0;i<10;i++)tx.objectStore('images').add({tab:'Standard',name:'E'+i,blob:new Blob(['x'],{type:'image/png'}),elo:1200,wins:0,losses:0,history:[1200],tags:{}});await new Promise(r=>tx.oncomplete=r);
+const all=await idbGetAll(db.transaction('images').objectStore('images'));const id=i=>all[i].id;const M=[];const now=Date.now();
+const mm=(a,b,t)=>M.push({tab:'Standard',leftId:id(a),rightId:id(b),winnerId:'left',delta:16,time:t});
+for(let k=0;k<4;k++)mm(0,1,now-1000*60*(k+1));mm(2,3,now-5000);mm(2,3,now-4000);mm(4,5,now-60*86400000);
+const t2=db.transaction('matches','readwrite');M.forEach(m=>t2.objectStore('matches').add(m));await new Promise(r=>t2.oncomplete=r)});
+await p.reload();await p.waitForFunction(()=>db!==null);await p.waitForTimeout(800);
+await p.evaluate(()=>openStats());await p.waitForTimeout(800);
+const t=await p.evaluate(()=>{const e=[...document.querySelectorAll('span[title]')].find(x=>/neue Paare/.test(x.title));return e?e.textContent+' | '+e.title:''});
+ok(/ca\. 1\.7 Jahre/.test(t),'Prognose zählt nur neue Paare: '+t);
+ok(/33 % deiner Matches/.test(t),'Quote 33 %');
+ok(errs.length===0,'keine JS-Fehler '+errs);
+await b.close();process.exit(f?1:0)})();

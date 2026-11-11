@@ -1,0 +1,14 @@
+const {chromium}=require('playwright');
+(async()=>{const b=await chromium.launch();const p=await (await b.newContext()).newPage();
+await p.goto('file://'+process.cwd()+'/Ranking.html');await p.waitForFunction(()=>db!==null);
+await p.evaluate(async()=>{const tx=db.transaction(['images','tagDefinitions'],'readwrite');
+tx.objectStore('images').add({tab:'Standard',name:'A',blob:new Blob(['x']),elo:1200,wins:0,losses:0,history:[1200],tags:{Typ:{value:'Wasser'},Gen:{value:'Feuer, Gift',values:['Feuer','Gift']}}});
+tx.objectStore('tagDefinitions').add({tab:'Standard',tagName:'Typ',options:['Feuer'],type:'exact'});
+tx.objectStore('tagDefinitions').add({tab:'Standard',tagName:'Gen',options:[],type:'multi'});
+await new Promise(r=>tx.oncomplete=r);});
+await p.reload();await p.waitForFunction(()=>db!==null);await p.waitForTimeout(800);
+const d=await p.evaluate(()=>new Promise(r=>db.transaction('tagDefinitions').objectStore('tagDefinitions').getAll().onsuccess=e=>r(e.target.result.map(x=>x.tagName+':'+x.options.join('|')))));
+console.log(d);
+await p.evaluate(()=>showDetailsByID(1));await p.waitForSelector('.dt-grid');
+console.log((await p.textContent('.dt-work')).includes('nicht in Liste')?'✘ noch nicht in Liste':'✔ keine "nicht in Liste"');
+await b.close();})();
