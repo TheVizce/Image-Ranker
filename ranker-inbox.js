@@ -223,13 +223,13 @@
       a.className = 'bo-link';
       a.href = '/b-organizer/#e=' + encodeURIComponent(im.boId);
       a.target = '_blank'; a.rel = 'noopener';
-      a.textContent = '🗂️ Im Babe Organizer öffnen';
+      a.textContent = '🗂️ Im Organizer öffnen';
       a.style.cssText = 'display:block;margin-top:5px;width:100%;box-sizing:border-box;padding:10px;text-align:center;border-radius:8px;border:1px solid #6b3a52;background:#3a2030;color:#f3c1d6;font-weight:bold;font-size:0.85em;text-decoration:none';
       const b = document.createElement('a');
       b.className = 'bo-link bo-pick';
       b.href = '/b-organizer/#e=' + encodeURIComponent(im.boId) + '&pick=' + im.id + '&tab=' + encodeURIComponent(im.tab || 'Standard');
       b.target = '_blank'; b.rel = 'noopener';
-      b.textContent = '🖼️ Anderes Bild wählen (Babe Organizer)';
+      b.textContent = '🖼️ Anderes Bild wählen (Organizer)';
       b.style.cssText = a.style.cssText;
       const links = media.querySelector('img.dt-img + div');
       if (links && links.nextSibling) media.insertBefore(a, links.nextSibling); else media.appendChild(a);
