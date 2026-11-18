@@ -5652,6 +5652,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	function getTagValuesAs(img, tagName, type) {
 		if (tagName === GROUP_TAG) return getGroups(img).slice();
 		if (BO_VTAGS.has(tagName)) return boValues(img, tagName);
+		if (tagName === CUPG_TAG) return cupGroupOf(img);
 		const t = img.tags && img.tags[tagName];
 		if (!t) return [];
 		const src = (type === 'multi' && Array.isArray(t.values)) ? t.values : [t.value];
@@ -5848,8 +5849,32 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		});
 		return out;
 	}
+	// Abgeleitete Eigenschaft „Cup-Gruppe“ aus der Eigenschaft „Cup“ (nichts wird gespeichert). Gleiche Stufen und Namen wie im Babe Organizer.
+	const CUPG_TAG = '🔠 Cup-Gruppe';
+	const CUP_GROUPS = ['Klein (AA–B)', 'Mittel (C–D)', 'Groß (DD–F)', 'Sehr groß (G–I)', 'Extrem (J+)'];
+	function cupGroupOfValue(v) {
+		const m = String(v || '').toUpperCase().match(/[A-Z]+/); if (!m) return '';
+		const c = m[0];
+		if (['AA', 'AAA', 'A', 'B'].includes(c)) return CUP_GROUPS[0];
+		if (['C', 'D'].includes(c)) return CUP_GROUPS[1];
+		if (['DD', 'DDD', 'E', 'F'].includes(c)) return CUP_GROUPS[2];
+		if (['FF', 'G', 'GG', 'H', 'HH', 'I'].includes(c)) return CUP_GROUPS[3];
+		if (/^[J-Z]/.test(c)) return CUP_GROUPS[4];
+		return '';
+	}
+	function cupGroupOf(img) {
+		const tags = (img && img.tags) || {}, k = Object.keys(tags).find(x => x.trim().toLowerCase() === 'cup');
+		const g = k ? cupGroupOfValue(tags[k] && tags[k].value) : '';
+		return g ? [g] : [];
+	}
+	function withCupGroupDef(defs, tab, images) {
+		if (!defs.some(d => String(d.tagName).trim().toLowerCase() === 'cup')) return defs;
+		const have = new Set(); images.forEach(i => cupGroupOf(i).forEach(g => have.add(g)));
+		if (!have.size) return defs;
+		return defs.concat([{ id: -5, tab: tab, tagName: CUPG_TAG, type: 'multi', options: CUP_GROUPS.filter(g => have.has(g)), virtual: true }]);
+	}
 	function withGroupDef(defs, tab, images) {
-		defs = withBoDefs(defs, tab, images);
+		defs = withCupGroupDef(withBoDefs(defs, tab, images), tab, images);
 		const names = [...groupsOfImages(images).values()].map(g => g.name).sort((a, b) => a.localeCompare(b, 'de'));
 		if (!names.length) return defs;
 		return defs.concat([{ id: -1, tab: tab, tagName: GROUP_TAG, type: 'multi', options: names, virtual: true }]);
