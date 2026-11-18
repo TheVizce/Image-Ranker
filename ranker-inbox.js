@@ -44,7 +44,7 @@
     const hashes = new Map();
     for (let k = 0; k < items.length; k++) {
       const it = items[k];
-      if (it.blob instanceof Blob) { note(`Übernehme aus dem Babe Organizer… ${k + 1} / ${items.length}`); hashes.set(it, (await computeImageHash(it.blob)) || ''); }
+      if (it.blob instanceof Blob) { note(`Übernehme aus dem Organizer… ${k + 1} / ${items.length}`); hashes.set(it, (await computeImageHash(it.blob)) || ''); }
     }
 
     // vorhandene Bilder des Reiters ohne Fingerabdruck einmalig nachziehen (wie beim Import im Ranker)
@@ -155,7 +155,7 @@
             await new Promise((res, rej) => { const t = tdb.transaction('jobs', 'readwrite'); t.objectStore('jobs').delete(job.id); t.oncomplete = res; t.onerror = () => rej(t.error); });
           } catch (e) {
             console.error('Übernahme fehlgeschlagen:', e);
-            note('Übernahme aus dem Babe Organizer fehlgeschlagen: ' + (e && e.message || e) + ' – der Auftrag bleibt erhalten.', 8000);
+            note('Übernahme aus dem Organizer fehlgeschlagen: ' + (e && e.message || e) + ' – der Auftrag bleibt erhalten.', 8000);
             tdb.close(); return;
           }
         }
@@ -179,7 +179,7 @@
         try { ensureThumbs(); } catch (e) {}
         if (window.RANKER_SYNC) window.RANKER_SYNC.changed();
         const rp = results.reduce((s, r) => s + (r.replaced || []).length, 0);
-        note(`Aus dem Babe Organizer: ${a} neu, ${u} verknüpft/aktualisiert${rp ? `, ${rp} Bild${rp === 1 ? '' : 'er'} ersetzt` : ''}${sk ? `, ${sk} übersprungen (kein eindeutiges Bild)` : ''}${last ? ' – Reiter „' + last.tab + '“' : ''}.`, 6000);
+        note(`Aus dem Organizer: ${a} neu, ${u} verknüpft/aktualisiert${rp ? `, ${rp} Bild${rp === 1 ? '' : 'er'} ersetzt` : ''}${sk ? `, ${sk} übersprungen (kein eindeutiges Bild)` : ''}${last ? ' – Reiter „' + last.tab + '“' : ''}.`, 6000);
         if (channel) channel.postMessage({ type: 'done', added: a, updated: u, skipped: sk });
       };
       // nur ein offener Ranker-Tab arbeitet die Aufträge ab
