@@ -4272,7 +4272,7 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 		h += nrow('set-shareGroup', '👥 Gruppenmitglieder (%)', 'Bilder, die mindestens eine Gruppe mit dem linken Bild teilen.', 'shareGroup');
 		h += nrow('set-shareSimilar', '🔗 Ähnliche (%)', 'Gleicher Wert bei einer der Eigenschaften unten (pro Duell wird eine davon zufällig gewählt).', 'shareSimilar');
 		h += '<div style="display:flex; flex-wrap:wrap; gap:6px 14px; margin:-4px 0 14px 0;">' +
-			(tagDefs.length ? tagDefs.map((d, di) => '<label style="display:inline-flex; align-items:center; gap:5px; cursor:pointer; font-size:0.9em;"><input type="checkbox" ' + (mtSel.has(d.tagName) ? 'checked' : '') + ' onchange="toggleMatchTag(' + di + ', this.checked)">' + escHtml(d.tagName) + '</label>').join('') : '<span style="color:#555; font-size:0.85em;">In diesem Tab gibt es noch keine Eigenschaften.</span>') +
+			(tagDefs.length ? tagDefs.concat(tagDefs.some(d => String(d.tagName).trim().toLowerCase() === 'cup') ? [{ tagName: CUPG_TAG }] : []).map((d, di) => '<label style="display:inline-flex; align-items:center; gap:5px; cursor:pointer; font-size:0.9em;"><input type="checkbox" ' + (mtSel.has(d.tagName) ? 'checked' : '') + ' onchange="toggleMatchTag(' + di + ', this.checked)">' + escHtml(d.tagName) + '</label>').join('') : '<span style="color:#555; font-size:0.85em;">In diesem Tab gibt es noch keine Eigenschaften.</span>') +
 			'</div><div style="' + hint + ' margin:-8px 0 12px 0;">Ankreuzen gilt für den Tab „' + escHtml(currentTab) + '“.</div>';
 		h += nrow('set-shareUndecided', '🤔 Unentschiedene Paare (%)', 'Paare mit knappem, gemischtem Ergebnis (z. B. 1:1, 2:1, 2:2; bis 5 Duelle) und Paare aus Widerspruchs-Dreierkreisen (A schlägt B, B schlägt C, C schlägt A).', 'shareUndecided');
 		h += '<div style="' + row + '"><label for="set-bandsInCoverage">Gezielte Arten auch im COVERAGE-Modus anwenden</label>' +
@@ -4468,7 +4468,8 @@ html[data-extras="off"] .cp-meta, html[data-extras="off"] #week-chart, html[data
 	}
 
 	async function toggleMatchTag(di, on) {
-		const defs = await getTagDefinitionsForTab(currentTab), d = defs[di]; if (!d) return;
+		const defs = await getTagDefinitionsForTab(currentTab);
+		const d = defs[di] || (di === defs.length && defs.some(x => String(x.tagName).trim().toLowerCase() === 'cup') ? { tagName: CUPG_TAG } : null); if (!d) return;
 		const l = new Set(settings.matchTags[currentTab] || []);
 		if (on) l.add(d.tagName); else l.delete(d.tagName);
 		if (l.size) settings.matchTags[currentTab] = [...l]; else delete settings.matchTags[currentTab];

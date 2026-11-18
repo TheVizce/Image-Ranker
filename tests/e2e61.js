@@ -24,4 +24,17 @@ const none=await p.evaluate(async()=>{const c=await loadFilterContext('Andere');
 const diff=await p.evaluate(async()=>{await editGroups([1,2],im=>{im.groups=['📏 Mittel']});settings.groupRules=settings.groupRules||{};settings.groupRules.Standard={...(settings.groupRules.Standard||{}),[groupKey('📏 Mittel')]:{conds:[{tag:CUPG_TAG,values:['Mittel (C–D)']}]}};
  await saveSettings();await openRivalHub('groups');await new Promise(r=>setTimeout(r,1500));const d=grpRuleDiff();window.__d=d.rows.map(r=>r.g.name)+'|'+d.plain.map(g=>g.name)+'|imgs'+rivalHub.images.length;const x=d.rows.find(r=>/Mittel/.test(r.g.name));return x?{cand:x.cand.map(i=>i.name).sort().join(),bad:x.bad.map(i=>i.name).sort().join()}:null});
 ok(diff&&diff.cand==='P2,P6'&&diff.bad==='P0,P1','Prüfung: +P2,P6 (C, 34D), −P0,P1 (A, B): '+JSON.stringify(diff));
+// „Ähnliche“: Einstellung und echte Gegnerwahl
+const sim=await p.evaluate(async()=>{await openSettings();await new Promise(r=>setTimeout(r,400));
+ const lab=[...document.querySelectorAll('#modal-body label')].find(l=>l.textContent.includes('Cup-Gruppe'));
+ const cb=lab&&lab.querySelector('input');if(cb){cb.checked=true;cb.dispatchEvent(new Event('change'))}
+ await new Promise(r=>setTimeout(r,300));
+ const saved=(settings.matchTags.Standard||[]).join();
+ Object.assign(settings,{shareRival:0,shareGroup:0,shareSimilar:1,shareUndecided:0});
+ const all=await idbGetAll(db.transaction('images').objectStore('images'));const idx=await getMatchIndex();
+ const left=all.find(i=>i.name==='P2');let bad=0,n=0,why='';
+ for(let k=0;k<30;k++){const c=targetedOpponent(left,all.filter(i=>i.id!==left.id),idx,0.5);if(c){n++;if(!['P2','P6'].includes(c.name)&&getTagValuesAs(c,CUPG_TAG,'multi')[0]!=='Mittel (C–D)')bad++;why=pickWhy&&pickWhy.d}}
+ return {found:!!lab,saved,n,bad,why}});
+ok(sim.found&&sim.saved.includes('Cup-Gruppe'),'Ähnliche: Cup-Gruppe wählbar und gespeichert: '+JSON.stringify(sim));
+ok(sim.n===30&&sim.bad===0,'Gegner immer aus derselben Cup-Gruppe: '+sim.n+'/'+sim.bad);
 ok(errs.length===0,'keine JS-Fehler '+errs);await b.close();process.exit(f?1:0)})();
